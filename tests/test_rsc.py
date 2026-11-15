@@ -61,7 +61,7 @@ class RscTests(unittest.TestCase):
 
     def test_cyclic_refs_do_not_recurse_forever(self):
         source = page([('0', element('article', [element('p', 'Body'), '$La'])), ('a', '$La')])
-        self.assertEqual(extract_rsc_article(source), '<p>Body</p>')
+        self.assertEqual(extract_rsc_article(source), '<article><p>Body</p></article>')
 
     def test_utf8_text_records_and_property_references(self):
         body = element('article', [element('p', '$a'), element('img', src='$b:url', alt='Image')])
@@ -89,6 +89,18 @@ class RscTests(unittest.TestCase):
         self.assertEqual(len(soup.select('h2')), 4)
         self.assertNotIn('Internal Server Error', body)
         self.assertNotIn('Keep reading', body)
+
+    def test_profile_text_before_first_paragraph_remains_structured_html(self):
+        source = page([('0', element('article', [
+            'Company size: SMB', element('p', 'The article begins here.'),
+        ]))])
+        body = extract_rsc_article(source)
+        self.assertTrue(body.startswith('<article>'))
+        soup = BeautifulSoup(body, 'lxml')
+        self.assertIn('Company size: SMB', soup.article.get_text())
+        self.assertEqual(soup.p.text, 'The article begins here.')
+        from run_daily import _body_to_html
+        self.assertEqual(_body_to_html(body), body)
 
     def test_missing_article_returns_none(self):
         self.assertIsNone(extract_rsc_article(page([('0', {'preload': '//example.com/image.png'})])))

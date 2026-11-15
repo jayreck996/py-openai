@@ -169,5 +169,7 @@ def extract_rsc_article(source: str, base_url: str = '') -> str | None:
             markup = '<article>' + markup + '</article>'
         body = clean_article_html(markup, base_url)
         if body:
-            return body
+            # A structured article may begin with profile text before its first tag.
+            # Keep a semantic root so consumers never mistake that prefix for plain text.
+            return f"<article>{body}</article>"
     return None
