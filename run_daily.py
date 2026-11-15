@@ -13,6 +13,8 @@ from datetime import date, timedelta, timezone
 from email.utils import format_datetime
 from pathlib import Path
 from urllib.parse import urljoin, urlparse
+import html as html_module
+import re
 from xml.etree.ElementTree import Element, SubElement, tostring
 from xml.dom.minidom import parseString
 
@@ -177,8 +179,14 @@ def _generate_feed() -> None:
             enc.set("length", "0")
 
     xml_str = parseString(tostring(rss, encoding="unicode")).toprettyxml(indent="  ")
-    # Fix CDATA blocks mangled by minidom
+    # minidom escapes CDATA delimiters and content — fix both
     xml_str = xml_str.replace("&lt;![CDATA[", "<![CDATA[").replace("]]&gt;", "]]>")
+    xml_str = re.sub(
+        r"<!\[CDATA\[(.*?)]]>",
+        lambda m: f"<![CDATA[{html_module.unescape(m.group(1))}]]>",
+        xml_str,
+        flags=re.DOTALL,
+    )
     Path("feed.xml").write_text(xml_str, encoding="utf-8")
     print(f"Feed updated: {len(articles)} item(s) → feed.xml")
 
