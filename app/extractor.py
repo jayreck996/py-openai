@@ -48,9 +48,9 @@ async def extract(url: str) -> Article:
                 pass
             html = await page.content()
 
-            # Try RSC payload decode first (most reliable — inline in HTML)
+            # RSC payload first — embedded in HTML, works even on Cloudflare-challenged pages
             body_text = _extract_rsc_body(html)
-            # Fall back to DOM walk if RSC didn't find article content
+            # DOM walk fallback if RSC found nothing
             if not body_text:
                 body_text = await _extract_dom_body(page)
             if not body_text:
@@ -135,22 +135,53 @@ def _extract_rsc_body(html: str) -> Optional[str]:
 
 
 def _rsc_section_to_html(section: str, rsc_chunks: Optional[dict] = None) -> str:
-    """Convert RSC payload section to clean HTML with inline images."""
+    """Convert RSC payload section to clean HTML with headings, inline links, and images."""
     parts: list[tuple[int, str]] = []
+    heading_exclusions: set[int] = set()
 
-    # Headings: ["$","h2",null,{"children":"TEXT"}]
-    for m in re.finditer(r'\["\$","(h[1-6])",[^,]*,\{[^}]*"children"\s*:\s*"([^"]+)"', section):
-        tag, text = m.group(1), m.group(2)
+    # Contentful heading blocks: ["$","$L<id>",null,{"text":[..spans..],"headlineTag":"h2",...}]
+    # OpenAI uses a rich-text renderer component (not native h2 elements) with headlineTag prop.
+    heading_re = re.compile(
+        r'\["\$","\$L[0-9a-f]+",null,\{'
+        r'"text":\[\["\$","\$1","[^"]*",\{"children":\[\["\$","span","text-\d+",\{"children":\["((?:[^"\\]|\\.)*)"\]\}\]\]\}\]\]'
+        r',"headlineTag":"(h[1-6])"'
+    )
+    for m in heading_re.finditer(section):
+        text, tag = m.group(1), m.group(2)
         parts.append((m.start(), f"<{tag}>{_unescape(text)}</{tag}>"))
+        # Find the inner span and mark it so we skip it in the text-span pass
+        sm = re.search(r'\["\$","span","text-\d+",\{', section[m.start():m.start() + len(m.group(0))])
+        if sm:
+            heading_exclusions.add(m.start() + sm.start())
 
-    # Text spans: ["$","span","text-N",{"children":["TEXT"]}]
-    for m in re.finditer(r'\["\$","span","text-(\d+)",\{"children":\["([^"\\](?:[^"\\]|\\.)*)"\]\}', section):
-        text = _unescape(m.group(2))
-        if text.strip():
+    # Legacy native h1-h6 elements with direct string children (sidebar components etc.)
+    for m in re.finditer(r'\["\$","(h[1-6])",[^,]*,\{"children":"([^"]+)"', section):
+        parts.append((m.start(), f"<{m.group(1)}>{_unescape(m.group(2))}</{m.group(1)}>"))
+
+    # Contentful inline links: ["$","$L<id>","key",{"variant":"inline","href":"URL",...}]
+    # Contentful always serializes variant before href in link component props.
+    link_map: dict[int, str] = {}  # absolute span position → href
+    for lm in re.finditer(r'\["\$","\$L[0-9a-f]+","[^"]+",\{"variant":"inline","href":"([^"]+)"', section):
+        href = lm.group(1)
+        # First text span within this link component (look ahead 400 chars)
+        end = min(lm.start() + 400, len(section))
+        sm = re.search(r'\["\$","span","text-\d+",\{"children":\["((?:[^"\\]|\\.)*)"\]\}', section[lm.start():end])
+        if sm:
+            link_map[lm.start() + sm.start()] = href
+
+    # Text spans — emit as <a> if inside a link, skip if consumed by a heading
+    for m in re.finditer(r'\["\$","span","text-\d+",\{"children":\["((?:[^"\\]|\\.)*)"\]\}', section):
+        if m.start() in heading_exclusions:
+            continue
+        text = _unescape(m.group(1))
+        if not text.strip():
+            continue
+        if m.start() in link_map:
+            parts.append((m.start(), f'<a href="{link_map[m.start()]}">{text.strip()}</a>'))
+        else:
             parts.append((m.start(), text))
 
     # Inline images: $L refs whose chunk contains a Contentful image asset
-    # Identified by "altText" key (Contentful mediaItem) + ctfassets URL in "file"."url"
     if rsc_chunks:
         seen_refs: set[str] = set()
         for m in re.finditer(r'\$L([0-9a-f]+)', section):
@@ -165,7 +196,6 @@ def _rsc_section_to_html(section: str, rsc_chunks: Optional[dict] = None) -> str
             if not alt_m:
                 continue
             alt = _unescape(alt_m.group(1))
-            # "$undefined" is RSC encoding for null — not a real content image
             if alt == "$undefined" or not alt.strip():
                 continue
             url_m = re.search(r'"url"\s*:\s*"(//images\.ctfassets[^"]+)"', chunk_val)
@@ -178,17 +208,16 @@ def _rsc_section_to_html(section: str, rsc_chunks: Optional[dict] = None) -> str
                 f'<figcaption style="font-size:0.85em;color:#666;margin-top:0.4em">{cap_text}</figcaption>'
                 if cap_text else ""
             )
-            img_html = (
+            parts.append((m.start(), (
                 f'<figure style="margin:1.5em 0">'
                 f'<img src="{img_url}" alt="{alt}" style="max-width:100%;display:block">'
                 f'{cap_html}</figure>'
-            )
-            parts.append((m.start(), img_html))
+            )))
 
     if not parts:
         return ""
 
-    # Sort by position and assemble — text chunks join into paragraphs; headings/figures break them
+    # Sort by position and assemble — inline text joins into <p>; headings/figures break them
     parts.sort(key=lambda x: x[0])
     html_parts: list[str] = []
     buf: list[str] = []
@@ -198,20 +227,25 @@ def _rsc_section_to_html(section: str, rsc_chunks: Optional[dict] = None) -> str
         is_block = text.startswith("<h") or text.startswith("<figure")
         if is_block:
             if buf:
-                html_parts.append(f"<p>{''.join(buf)}</p>")
+                joined = "".join(buf).strip()
+                if joined:
+                    html_parts.append(f"<p>{joined}</p>")
                 buf = []
             html_parts.append(text)
         else:
             if buf and (pos - prev_pos) > 500:
-                html_parts.append(f"<p>{''.join(buf)}</p>")
+                joined = "".join(buf).strip()
+                if joined:
+                    html_parts.append(f"<p>{joined}</p>")
                 buf = []
             buf.append(text)
         prev_pos = pos
 
     if buf:
-        html_parts.append(f"<p>{''.join(buf)}</p>")
+        joined = "".join(buf).strip()
+        if joined:
+            html_parts.append(f"<p>{joined}</p>")
 
-    # Deduplicate consecutive identical blocks
     seen: list[str] = []
     for p in html_parts:
         if not seen or p != seen[-1]:
@@ -221,21 +255,23 @@ def _rsc_section_to_html(section: str, rsc_chunks: Optional[dict] = None) -> str
 
 
 def _unescape(s: str) -> str:
-    return s.replace("\\n", " ").replace('\\"', '"').replace("\\'", "'").replace("\\\\", "\\").strip()
+    # No .strip() — RSC spans include meaningful leading/trailing whitespace for word joining
+    return s.replace("\\n", " ").replace('\\"', '"').replace("\\'", "'").replace("\\\\", "\\")
 
 
 async def _extract_dom_body(page) -> Optional[str]:
     """Walk the rendered article DOM to extract clean HTML with correct heading levels."""
     result = await page.evaluate("""
     () => {
-        const article = document.querySelector('article');
-        if (!article) return null;
-        const clone = article.cloneNode(true);
+        // Prefer [data-toc-content] (OpenAI article body) over generic article element
+        const root = document.querySelector('[data-toc-content]') || document.querySelector('article');
+        if (!root) return null;
+        const clone = root.cloneNode(true);
         clone.querySelectorAll(
             'script,style,nav,button,footer,sup,aside,[role="navigation"],[data-testid="share"]'
         ).forEach(e => e.remove());
 
-        const skipHeadings = new Set(['Author', 'Acknowledgments', 'Footnotes', 'References']);
+        const skipHeadings = new Set(['Author', 'Acknowledgments', 'Footnotes', 'References', 'Keep reading', 'OpenAI <3 startups']);
         const skipText = new Set(['Release', 'Research', 'Product', 'Company', 'Featured',
                                   'Listen to article', 'Read aloud']);
 
@@ -279,10 +315,26 @@ async def _extract_dom_body(page) -> Optional[str]:
                     }
                     html = html.replace(/\\(opens in a new window\\)/g, '').trim();
                     if (html && html.length > 5) parts.push(`<p>${html}</p>`);
+                } else if (tag === 'blockquote') {
+                    const text = child.innerText.trim();
+                    if (text) parts.push(`<blockquote><p>${text}</p></blockquote>`);
+                } else if (tag === 'figure') {
+                    const img = child.querySelector('img');
+                    if (img && img.src && !img.src.startsWith('data:')) {
+                        const cap = child.querySelector('figcaption');
+                        const capHtml = cap
+                            ? `<figcaption style="font-size:0.85em;color:#666;margin-top:0.4em">${cap.innerText.trim()}</figcaption>`
+                            : '';
+                        parts.push(
+                            `<figure style="margin:1.5em 0">` +
+                            `<img src="${img.src}" alt="${img.alt || ''}" style="max-width:100%;display:block">` +
+                            `${capHtml}</figure>`
+                        );
+                    }
                 } else if (tag === 'img' && child.src && !child.src.startsWith('data:')) {
                     parts.push(
                         `<figure style="margin:1.5em 0">` +
-                        `<img src="${child.src}" alt="${child.alt}" style="max-width:100%;display:block">` +
+                        `<img src="${child.src}" alt="${child.alt || ''}" style="max-width:100%;display:block">` +
                         `</figure>`
                     );
                 } else if (tag === 'ul' || tag === 'ol') {

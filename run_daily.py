@@ -101,7 +101,7 @@ async def main() -> None:
         out_dir.mkdir(parents=True, exist_ok=True)
 
         for url in new_urls:
-            print(f"  → {url}")
+            print(f"  -> {url}")
             try:
                 article = await extract(url)
                 blocked = (
@@ -242,7 +242,7 @@ def _generate_feed() -> None:
     )
     Path("feed.xml").write_text(xml_str, encoding="utf-8")
     Path("feed_v11.xml").write_text(xml_str, encoding="utf-8")
-    print(f"Feed updated: {len(articles)} item(s) → feed.xml + feed_v11.xml")
+    print(f"Feed updated: {len(articles)} item(s) -> feed.xml + feed_v11.xml")
 
 
 def _cleanup_old_data() -> None:

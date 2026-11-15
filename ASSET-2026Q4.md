@@ -9,6 +9,24 @@ REQUIRED FORMAT FOR EACH ASSET ENTRY:
 
 ## ASSET:{NAME OF ENVIRONMENT} {YYYY-MM-DD HH:MM} → {CONTENT}
 
+## ASSET:py-openai 2026-11-15 20:30 → RSC headings, inline links, spacing fixed — mirrors Anthropic output
+
+Fixed RSC extractor to produce clean semantic HTML matching Anthropic's output quality.
+
+**Problems fixed:**
+- Headings rendered as `<p>` — OpenAI uses a Contentful rich-text renderer component (`$L<id>`) with `"headlineTag":"h2"` prop, not native `["$","h2",...]` elements. Added heading component regex targeting this pattern.
+- Missing spaces between words — `_unescape()` was calling `.strip()` on each span, removing the trailing/leading spaces that RSC spans use for word separation. Removed `.strip()`; assembler now does `"".join(buf).strip()` on the whole paragraph.
+- Links missing — inline links are Contentful link components with `"variant":"inline","href":"URL"`. Added link regex that finds the href and associates it with the inner span, emitting `<a href>` tags.
+- Inner heading/link spans now excluded from the text-span pass via position tracking to avoid duplicate text.
+
+| Fix | Regex anchor |
+|---|---|
+| Headings | `["$","$L<id>",null,{"text":[..spans..],"headlineTag":"h2",...}]` |
+| Links | `["$","$L<id>","key",{"variant":"inline","href":"URL",...}]` |
+| Spacing | Removed `.strip()` from `_unescape()`; `"".join(buf).strip()` at paragraph level |
+
+Verified against live RSC payload on cogent-security article — output matches actual page content exactly.
+
 ## ASSET:py-openai 2026-11-15 18:46 → RSC inline images live — v11, fresh data each run
 
 OpenAI blog RSS scraper fully operational with inline images extracted from Next.js RSC payload.
