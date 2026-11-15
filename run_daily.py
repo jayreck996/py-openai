@@ -1,13 +1,15 @@
 """
 Daily discovery + fetch for openai.com blog/news/research.
-Skips articles already saved under data/. Saves new ones to data/YYYY-MM-DD/slug.json.
+Maintains a rolling 7-day window: fetches new articles, skips already-saved ones,
+and removes data directories older than WINDOW_DAYS at the end of each run.
 """
 
 import asyncio
 import json
 import re
+import shutil
 import sys
-from datetime import date
+from datetime import date, timedelta
 from pathlib import Path
 from urllib.parse import urljoin, urlparse
 
@@ -21,6 +23,7 @@ LISTING_PAGES = [
 ]
 
 DATA_DIR = Path("data")
+WINDOW_DAYS = 7
 
 
 async def discover_listing(listing_url: str) -> list[str]:
@@ -100,12 +103,36 @@ async def main() -> None:
         print(f"  → {url}")
         try:
             article = await extract(url)
+            # Skip articles published outside the window (when date is known)
+            if article.published_at:
+                try:
+                    pub_date = date.fromisoformat(article.published_at[:10])
+                    if pub_date < date.today() - timedelta(days=WINDOW_DAYS):
+                        print(f"    Skipped (older than {WINDOW_DAYS} days): {pub_date}")
+                        continue
+                except ValueError:
+                    pass  # unparseable date — save it anyway
             slug = url_to_slug(url)
             dest = out_dir / f"{slug}.json"
             dest.write_text(article.model_dump_json(indent=2), encoding="utf-8")
             print(f"    Saved: {dest}")
         except Exception as exc:
             print(f"    ERROR: {exc}", file=sys.stderr)
+
+    _cleanup_old_data()
+
+
+def _cleanup_old_data() -> None:
+    cutoff = date.today() - timedelta(days=WINDOW_DAYS)
+    for day_dir in sorted(DATA_DIR.iterdir()):
+        if not day_dir.is_dir():
+            continue
+        try:
+            if date.fromisoformat(day_dir.name) < cutoff:
+                shutil.rmtree(day_dir)
+                print(f"Removed expired data: {day_dir}")
+        except ValueError:
+            pass  # skip non-date directories
 
 
 asyncio.run(main())
