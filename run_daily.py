@@ -128,14 +128,13 @@ async def main() -> None:
     _generate_feed()
 
 
-def _body_to_html(text: str, cover_url: str = "") -> str:
+def _body_to_html(text: str, cover_url: str = "", body_images: list = None) -> str:
     text = re.sub(r'\[([^\]]+)\]\(([^)]+)\)', r'<a href="\2">\1</a>', text)
     parts = []
     for line in text.split("\n"):
         line = line.strip()
         if not line:
             continue
-        # Short lines without trailing punctuation or list markers are section headings
         if (
             len(line) < 70
             and not line[-1] in ".!?,:"
@@ -144,6 +143,17 @@ def _body_to_html(text: str, cover_url: str = "") -> str:
             parts.append(f"<h2>{line}</h2>")
         else:
             parts.append(f"<p>{line}</p>")
+    for img in (body_images or []):
+        url = img.get("url", "") if isinstance(img, dict) else str(img)
+        alt = (img.get("alt") or "") if isinstance(img, dict) else ""
+        if not url:
+            continue
+        cap = f'<figcaption style="font-size:0.85em;color:#666;margin-top:0.4em">{alt}</figcaption>' if alt else ""
+        parts.append(
+            f'<figure style="margin:1.5em 0">'
+            f'<img src="{url}" alt="{alt}" style="max-width:100%;display:block">'
+            f'{cap}</figure>'
+        )
     cover_html = (
         f'<img src="{cover_url}" style="max-width:100%;display:block;margin-bottom:1em">'
         if cover_url else ""
@@ -179,9 +189,10 @@ def _generate_feed() -> None:
         SubElement(item, "guid", isPermaLink="false").text = a.get("url", "") + "#v4"
         body = a.get("body_text") or a.get("body_html") or ""
         cover = (a.get("cover_image") or {}).get("url", "")
+        body_images = a.get("images") or []
         SubElement(item, "description").text = a.get("summary") or ""
         if body:
-            html_body = _body_to_html(body, cover)
+            html_body = _body_to_html(body, cover, body_images)
             encoded = SubElement(item, "content:encoded")
             encoded.text = f"<![CDATA[{html_body}]]>"
         if a.get("published_at"):
