@@ -155,16 +155,20 @@ def _generate_feed() -> None:
         SubElement(item, "title").text = a.get("title") or "Untitled"
         SubElement(item, "link").text = a.get("url", "")
         SubElement(item, "guid", isPermaLink="true").text = a.get("url", "")
-        SubElement(item, "description").text = a.get("summary") or ""
-        # Full body as content:encoded — Feedly renders this as the article body
         body = a.get("body_text") or a.get("body_html") or ""
+        cover = (a.get("cover_image") or {}).get("url", "")
         if body:
-            cover = (a.get("cover_image") or {}).get("url", "")
             html_body = (
                 f'<img src="{cover}" style="max-width:100%"><br><br>' if cover else ""
             ) + body.replace("\n", "<br>")
+            # Put full body in description so Feedly free renders it inline
+            desc = SubElement(item, "description")
+            desc.text = f"<![CDATA[{html_body}]]>"
+            # Also keep content:encoded for other readers
             encoded = SubElement(item, "content:encoded")
             encoded.text = f"<![CDATA[{html_body}]]>"
+        else:
+            SubElement(item, "description").text = a.get("summary") or ""
         if a.get("published_at"):
             try:
                 from datetime import datetime
