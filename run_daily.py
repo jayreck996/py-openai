@@ -98,32 +98,31 @@ async def main() -> None:
 
     if not new_urls:
         print("No new articles found.")
-        return
+    else:
+        print(f"\nFetching {len(new_urls)} new article(s):")
+        today = date.today().isoformat()
+        out_dir = DATA_DIR / today
+        out_dir.mkdir(parents=True, exist_ok=True)
 
-    print(f"\nFetching {len(new_urls)} new article(s):")
-    today = date.today().isoformat()
-    out_dir = DATA_DIR / today
-    out_dir.mkdir(parents=True, exist_ok=True)
-
-    for url in new_urls:
-        print(f"  → {url}")
-        try:
-            article = await extract(url)
-            # Skip articles published outside the window (when date is known)
-            if article.published_at:
-                try:
-                    pub_date = date.fromisoformat(article.published_at[:10])
-                    if pub_date < date.today() - timedelta(days=WINDOW_DAYS):
-                        print(f"    Skipped (older than {WINDOW_DAYS} days): {pub_date}")
-                        continue
-                except ValueError:
-                    pass  # unparseable date — save it anyway
-            slug = url_to_slug(url)
-            dest = out_dir / f"{slug}.json"
-            dest.write_text(article.model_dump_json(indent=2), encoding="utf-8")
-            print(f"    Saved: {dest}")
-        except Exception as exc:
-            print(f"    ERROR: {exc}", file=sys.stderr)
+        for url in new_urls:
+            print(f"  → {url}")
+            try:
+                article = await extract(url)
+                # Skip articles published outside the window (when date is known)
+                if article.published_at:
+                    try:
+                        pub_date = date.fromisoformat(article.published_at[:10])
+                        if pub_date < date.today() - timedelta(days=WINDOW_DAYS):
+                            print(f"    Skipped (older than {WINDOW_DAYS} days): {pub_date}")
+                            continue
+                    except ValueError:
+                        pass  # unparseable date — save it anyway
+                slug = url_to_slug(url)
+                dest = out_dir / f"{slug}.json"
+                dest.write_text(article.model_dump_json(indent=2), encoding="utf-8")
+                print(f"    Saved: {dest}")
+            except Exception as exc:
+                print(f"    ERROR: {exc}", file=sys.stderr)
 
     _cleanup_old_data()
     _generate_feed()
