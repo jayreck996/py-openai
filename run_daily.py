@@ -28,7 +28,8 @@ DATA_DIR = Path("data")
 WINDOW_DAYS = 7
 
 
-def discover_from_rss() -> list[str]:
+def discover_from_rss() -> list[tuple[str, str]]:
+    """Return list of (url, iso_date) tuples from RSS, newest-first, within WINDOW_DAYS."""
     req = urllib.request.Request(
         RSS_URL,
         headers={"User-Agent": "Mozilla/5.0 (compatible; RSS reader)"},
@@ -38,7 +39,7 @@ def discover_from_rss() -> list[str]:
     soup = BeautifulSoup(content, "xml")
     cutoff = date.today() - timedelta(days=WINDOW_DAYS)
     seen: set[str] = set()
-    urls: list[str] = []
+    items: list[tuple[str, str]] = []
     for item in soup.find_all("item"):
         link_tag = item.find("link")
         pub_tag = item.find("pubDate")
@@ -48,17 +49,20 @@ def discover_from_rss() -> list[str]:
         path = urlparse(url).path.rstrip("/")
         if not re.match(r"^/(index|blog|research)/[^/]+$", path):
             continue
+        pub_iso = ""
         if pub_tag:
             try:
-                pub_date = parsedate_to_datetime(pub_tag.text).date()
+                dt = parsedate_to_datetime(pub_tag.text)
+                pub_date = dt.date()
                 if pub_date < cutoff:
                     break  # RSS is newest-first; nothing older will qualify
+                pub_iso = dt.date().isoformat()
             except Exception:
                 pass
         if url not in seen:
             seen.add(url)
-            urls.append(url)
-    return urls
+            items.append((url, pub_iso))
+    return items
 
 
 def already_fetched_urls() -> set[str]:
@@ -85,7 +89,8 @@ async def main() -> None:
     print(f"Discovering from RSS: {RSS_URL}")
     found = discover_from_rss()
     print(f"  Found {len(found)} links")
-    new_urls = [u for u in found if u not in fetched]
+    rss_dates = {url: pub_iso for url, pub_iso in found}
+    new_urls = [url for url, _ in found if url not in fetched]
 
     if not new_urls:
         print("No new articles found.")
@@ -107,6 +112,9 @@ async def main() -> None:
                 if blocked:
                     print(f"    Skipped (Cloudflare blocked)")
                     continue
+                # Fall back to RSS date if extractor didn't find one
+                if not article.published_at and rss_dates.get(url):
+                    article.published_at = rss_dates[url]
                 # Skip articles published outside the window
                 if article.published_at:
                     try:
