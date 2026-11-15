@@ -9,9 +9,8 @@ from playwright.async_api import async_playwright
 
 from .models import Article, Image
 
-# Simple in-memory cache: url -> (timestamp, Article)
 _cache: dict[str, tuple[float, Article]] = {}
-CACHE_TTL = 3600  # 1 hour
+CACHE_TTL = 3600
 
 
 async def extract(url: str) -> Article:
@@ -20,7 +19,37 @@ async def extract(url: str) -> Article:
         if time.time() - ts < CACHE_TTL:
             return article
 
-    html = await _render(url)
+    async with async_playwright() as p:
+        browser = await p.chromium.launch(headless=True)
+        try:
+            ctx = await browser.new_context(
+                user_agent=(
+                    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
+                    "(KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36"
+                )
+            )
+            page = await ctx.new_page()
+            await page.goto(url, wait_until="load", timeout=60_000)
+            try:
+                await page.wait_for_selector("article, [class*='content'], main", timeout=10_000)
+            except Exception:
+                pass
+            await page.wait_for_timeout(3_000)
+            html = await page.content()
+
+            # Try DOM walk extraction first (Contentful content is pre-rendered)
+            body_text = await _extract_dom_body(page)
+            if not body_text:
+                body_text = trafilatura.extract(
+                    html,
+                    include_images=True,
+                    include_links=True,
+                    no_fallback=False,
+                    favor_precision=True,
+                )
+        finally:
+            await browser.close()
+
     soup = BeautifulSoup(html, "lxml")
 
     title = (
@@ -29,31 +58,19 @@ async def extract(url: str) -> Article:
         or _jsonld_field(soup, "headline")
         or (soup.h1.get_text(strip=True) if soup.h1 else None)
     )
-
     summary = (
         _meta(soup, "og:description")
         or _meta(soup, "description")
         or _jsonld_field(soup, "description")
     )
-
     author = _jsonld_author(soup) or _meta(soup, "author")
-
     published_at = (
         _meta(soup, "article:published_time")
         or _jsonld_field(soup, "datePublished")
         or _jsonld_field(soup, "dateCreated")
     )
-
     og_image = _meta(soup, "og:image") or _meta(soup, "twitter:image")
     cover_image = Image(url=og_image) if og_image else None
-
-    body_text = trafilatura.extract(
-        html,
-        include_images=True,
-        include_links=True,
-        no_fallback=False,
-        favor_precision=True,
-    )
     body_html = _body_html(soup)
     images = _body_images(soup, url)
     tags = _extract_tags(soup)
@@ -74,26 +91,82 @@ async def extract(url: str) -> Article:
     return article
 
 
-async def _render(url: str) -> str:
-    async with async_playwright() as p:
-        browser = await p.chromium.launch(headless=True)
-        try:
-            ctx = await browser.new_context(
-                user_agent=(
-                    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
-                    "(KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36"
-                )
-            )
-            page = await ctx.new_page()
-            await page.goto(url, wait_until="load", timeout=60_000)
-            # OpenAI blog uses a React SPA; wait for the article body to hydrate
-            try:
-                await page.wait_for_selector("article, [class*='content'], main", timeout=10_000)
-            except Exception:
-                pass
-            return await page.content()
-        finally:
-            await browser.close()
+async def _extract_dom_body(page) -> Optional[str]:
+    """Walk the rendered article DOM to extract clean HTML with correct heading levels."""
+    result = await page.evaluate("""
+    () => {
+        const article = document.querySelector('article');
+        if (!article) return null;
+        const clone = article.cloneNode(true);
+        clone.querySelectorAll(
+            'script,style,nav,button,footer,sup,aside,[role="navigation"],[data-testid="share"]'
+        ).forEach(e => e.remove());
+
+        const skipHeadings = new Set(['Author', 'Acknowledgments', 'Footnotes', 'References']);
+        const skipText = new Set(['Release', 'Research', 'Product', 'Company', 'Featured',
+                                  'Listen to article', 'Read aloud']);
+
+        function extractHtml(node) {
+            const parts = [];
+            for (const child of node.childNodes) {
+                if (child.nodeType === 3) {
+                    const t = child.textContent
+                        .replace(/\\(opens in a new window\\)/g, '')
+                        .replace(/\\n+/g, ' ')
+                        .trim();
+                    if (t && t.length > 2 && !skipText.has(t) && !/^\\d+:\\d+$/.test(t))
+                        parts.push(t);
+                    continue;
+                }
+                if (child.nodeType !== 1) continue;
+                const tag = child.tagName.toLowerCase();
+                if (['script','style','button','nav','sup','aside'].includes(tag)) continue;
+
+                if (['h2','h3','h4'].includes(tag)) {
+                    const text = child.innerText.trim();
+                    if (text && !skipHeadings.has(text))
+                        parts.push(`<${tag}>${text}</${tag}>`);
+                } else if (tag === 'p') {
+                    let html = '';
+                    for (const n of child.childNodes) {
+                        if (n.nodeType === 3) {
+                            html += n.textContent.replace(/\\(opens in a new window\\)/g, '');
+                        } else if (n.tagName === 'A') {
+                            const text = n.innerText.replace(/\\(opens in a new window\\)/g, '').trim();
+                            html += `<a href="${n.href}">${text}</a>`;
+                        } else if (['STRONG','B'].includes(n.tagName)) {
+                            html += `<strong>${n.innerText}</strong>`;
+                        } else if (['EM','I'].includes(n.tagName)) {
+                            html += `<em>${n.innerText}</em>`;
+                        } else if (n.tagName === 'CODE') {
+                            html += `<code>${n.innerText}</code>`;
+                        } else {
+                            html += n.innerText || '';
+                        }
+                    }
+                    html = html.replace(/\\(opens in a new window\\)/g, '').trim();
+                    if (html && html.length > 5) parts.push(`<p>${html}</p>`);
+                } else if (tag === 'img' && child.src && !child.src.startsWith('data:')) {
+                    parts.push(
+                        `<figure style="margin:1.5em 0">` +
+                        `<img src="${child.src}" alt="${child.alt}" style="max-width:100%;display:block">` +
+                        `</figure>`
+                    );
+                } else if (tag === 'ul' || tag === 'ol') {
+                    const items = [...child.querySelectorAll('li')]
+                        .map(li => `<li>${li.innerText.trim()}</li>`).join('');
+                    if (items) parts.push(`<${tag}>${items}</${tag}>`);
+                } else {
+                    parts.push(...extractHtml(child));
+                }
+            }
+            return parts;
+        }
+        const html = extractHtml(clone).join('');
+        return html.length > 100 ? html : null;
+    }
+    """)
+    return result or None
 
 
 def _meta(soup: BeautifulSoup, name: str) -> Optional[str]:
@@ -138,13 +211,12 @@ def _jsonld_author(soup: BeautifulSoup) -> Optional[str]:
 
 
 def _body_html(soup: BeautifulSoup) -> Optional[str]:
-    # OpenAI blog renders into an article tag or a content wrapper inside main
     candidates = [
-        soup.select_one("article"),
         soup.select_one("main article"),
         soup.select_one("[class*='ArticleBody']"),
         soup.select_one("[class*='PostContent']"),
         soup.select_one("[class*='article-body']"),
+        soup.select_one("article"),
         soup.select_one("main"),
     ]
     el = next((c for c in candidates if c), None)
@@ -176,8 +248,6 @@ def _body_images(soup: BeautifulSoup, base_url: str) -> list[Image]:
             h = int(img.get("height", 0)) or None
         except (ValueError, TypeError):
             w = h = None
-        if w and w < 50:
-            continue
         images.append(Image(url=full, alt=img.get("alt"), width=w, height=h))
     return images
 

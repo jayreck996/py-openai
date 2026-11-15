@@ -129,13 +129,20 @@ async def main() -> None:
 
 
 def _body_to_html(text: str, cover_url: str = "", body_images: list = None) -> str:
-    # Inline images from trafilatura (include_images=True): ![alt](url)
+    cover_html = (
+        f'<img src="{cover_url}" style="max-width:100%;display:block;margin-bottom:1em">'
+        if cover_url else ""
+    )
+    # New extractor produces clean HTML directly — just prepend cover
+    if text.strip().startswith("<"):
+        return cover_html + text
+
+    # Legacy: trafilatura plain text path
     text = re.sub(
         r'!\[([^\]]*)\]\(([^)]+)\)',
         r'<figure style="margin:1.5em 0"><img src="\2" alt="\1" style="max-width:100%;display:block"></figure>',
         text,
     )
-    # Markdown links
     text = re.sub(r'\[([^\]]+)\]\(([^)]+)\)', r'<a href="\2">\1</a>', text)
     parts = []
     for line in text.split("\n"):
@@ -144,15 +151,10 @@ def _body_to_html(text: str, cover_url: str = "", body_images: list = None) -> s
             continue
         if line.startswith("<figure") or line.startswith("<img"):
             parts.append(line)
-        elif (
-            len(line) < 70
-            and not line[-1] in ".!?,:"
-            and not line[0] in "-*•["
-        ):
+        elif len(line) < 70 and not line[-1] in ".!?,:" and not line[0] in "-*•[":
             parts.append(f"<h2>{line}</h2>")
         else:
             parts.append(f"<p>{line}</p>")
-    # Fallback: articles saved before include_images=True — append images[] at end
     inline_urls = set(re.findall(r'<img src="([^"]+)"', "".join(parts)))
     for img in (body_images or []):
         url = img.get("url", "") if isinstance(img, dict) else str(img)
@@ -161,10 +163,6 @@ def _body_to_html(text: str, cover_url: str = "", body_images: list = None) -> s
             continue
         cap = f'<figcaption style="font-size:0.85em;color:#666;margin-top:0.4em">{alt}</figcaption>' if alt else ""
         parts.append(f'<figure style="margin:1.5em 0"><img src="{url}" alt="{alt}" style="max-width:100%;display:block">{cap}</figure>')
-    cover_html = (
-        f'<img src="{cover_url}" style="max-width:100%;display:block;margin-bottom:1em">'
-        if cover_url else ""
-    )
     return cover_html + "".join(parts)
 
 
@@ -193,7 +191,7 @@ def _generate_feed() -> None:
         item = SubElement(channel, "item")
         SubElement(item, "title").text = a.get("title") or "Untitled"
         SubElement(item, "link").text = a.get("url", "")
-        SubElement(item, "guid", isPermaLink="false").text = a.get("url", "") + "#v5"
+        SubElement(item, "guid", isPermaLink="false").text = a.get("url", "") + "#v6"
         body = a.get("body_text") or a.get("body_html") or ""
         cover = (a.get("cover_image") or {}).get("url", "")
         body_images = a.get("images") or []
@@ -225,8 +223,8 @@ def _generate_feed() -> None:
         flags=re.DOTALL,
     )
     Path("feed.xml").write_text(xml_str, encoding="utf-8")
-    Path("feed_v5.xml").write_text(xml_str, encoding="utf-8")
-    print(f"Feed updated: {len(articles)} item(s) → feed.xml + feed_v5.xml")
+    Path("feed_v6.xml").write_text(xml_str, encoding="utf-8")
+    print(f"Feed updated: {len(articles)} item(s) → feed.xml + feed_v6.xml")
 
 
 def _cleanup_old_data() -> None:
