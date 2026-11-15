@@ -128,6 +128,18 @@ async def main() -> None:
     _generate_feed()
 
 
+def _body_to_html(text: str, cover_url: str = "") -> str:
+    # Convert markdown links [label](url) → <a href="url">label</a>
+    text = re.sub(r'\[([^\]]+)\]\(([^)]+)\)', r'<a href="\2">\1</a>', text)
+    # Wrap each non-empty line in <p> tags for proper paragraph spacing
+    paragraphs = "".join(f"<p>{line}</p>" for line in text.split("\n") if line.strip())
+    cover_html = (
+        f'<img src="{cover_url}" style="max-width:100%;display:block;margin-bottom:1em">'
+        if cover_url else ""
+    )
+    return cover_html + paragraphs
+
+
 def _generate_feed() -> None:
     articles = []
     for f in sorted(DATA_DIR.glob("**/*.json"), reverse=True):
@@ -157,9 +169,7 @@ def _generate_feed() -> None:
         body = a.get("body_text") or a.get("body_html") or ""
         cover = (a.get("cover_image") or {}).get("url", "")
         if body:
-            html_body = (
-                f'<img src="{cover}" style="max-width:100%"><br><br>' if cover else ""
-            ) + body.replace("\n", "<br>")
+            html_body = _body_to_html(body, cover)
             # Put full body in description so Feedly free renders it inline
             desc = SubElement(item, "description")
             desc.text = f"<![CDATA[{html_body}]]>"
