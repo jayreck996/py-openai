@@ -5,20 +5,18 @@ import time
 from typing import Optional
 from urllib.parse import urljoin
 
-import trafilatura
 from bs4 import BeautifulSoup
 from playwright.async_api import async_playwright
 
 from .models import Article, Image
-from .rendering import clean_article_html
 from .rsc import extract_rsc_article
 
 _cache: dict[str, tuple[float, Article]] = {}
 CACHE_TTL = 3600
 
 
-async def extract(url: str) -> Article:
-    if url in _cache:
+async def extract(url: str, *, use_cache: bool = True) -> Article:
+    if use_cache and url in _cache:
         ts, article = _cache[url]
         if time.time() - ts < CACHE_TTL:
             return article
@@ -54,18 +52,9 @@ async def extract(url: str) -> Article:
             if snapshot_path := os.environ.get("ARTICLE_HTML_SNAPSHOT"):
                 Path(snapshot_path).write_text(html, encoding="utf-8")
 
-            # Follow the article tree, including images absent from an incomplete DOM.
             body_text = _extract_rsc_body(html, url)
             if not body_text:
-                body_text = clean_article_html(html, url)
-            if not body_text:
-                body_text = trafilatura.extract(
-                    html,
-                    include_images=True,
-                    include_links=True,
-                    no_fallback=False,
-                    favor_precision=True,
-                )
+                raise ValueError("React Flight article content was not found; article skipped")
         finally:
             await browser.close()
 
@@ -90,10 +79,8 @@ async def extract(url: str) -> Article:
     )
     og_image = _meta(soup, "og:image") or _meta(soup, "twitter:image")
     cover_image = Image(url=og_image) if og_image else None
-    body_html = (
-        body_text if body_text and body_text.lstrip().startswith("<") else _body_html(soup)
-    )
-    images = _body_images(soup, url)
+    body_html = body_text
+    images = _body_images(BeautifulSoup(f"<article>{body_text}</article>", "lxml"), url)
     tags = _extract_tags(soup)
 
     article = Article(
@@ -115,11 +102,6 @@ async def extract(url: str) -> Article:
 def _extract_rsc_body(html: str, base_url: str = "") -> Optional[str]:
     """Render the article tree, resolving images at their child positions."""
     return extract_rsc_article(html, base_url)
-
-
-async def _extract_dom_body(page) -> Optional[str]:
-    """Render semantic article HTML without flattening nested inline elements."""
-    return clean_article_html(await page.content(), page.url)
 
 
 def _meta(soup: BeautifulSoup, name: str) -> Optional[str]:
@@ -161,23 +143,6 @@ def _jsonld_author(soup: BeautifulSoup) -> Optional[str]:
         except (json.JSONDecodeError, AttributeError):
             continue
     return None
-
-
-def _body_html(soup: BeautifulSoup) -> Optional[str]:
-    candidates = [
-        soup.select_one("main article"),
-        soup.select_one("[class*='ArticleBody']"),
-        soup.select_one("[class*='PostContent']"),
-        soup.select_one("[class*='article-body']"),
-        soup.select_one("article"),
-        soup.select_one("main"),
-    ]
-    el = next((c for c in candidates if c), None)
-    if not el:
-        return None
-    for dead in el.select("nav, header, footer, [role='navigation'], [aria-label='breadcrumb']"):
-        dead.decompose()
-    return str(el)
 
 
 def _body_images(soup: BeautifulSoup, base_url: str) -> list[Image]:

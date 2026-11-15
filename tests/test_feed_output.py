@@ -1,10 +1,13 @@
+import asyncio
 import json
+from datetime import date
+from types import ModuleType, SimpleNamespace
 from pathlib import Path
 import subprocess
 import sys
 import tempfile
 import unittest
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 from xml.etree import ElementTree as ET
 
 import run_daily
@@ -48,6 +51,41 @@ class FeedOutputTests(unittest.TestCase):
         self.assertEqual(test_feed.findtext('./channel/item/guid'), self.url + '#v15')
         link = test_feed.find('./channel/{http://www.w3.org/2005/Atom}link')
         self.assertTrue(link.get('href').endswith('/feed_v15.xml'))
+
+    def test_missing_structured_body_is_skipped_without_using_raw_html(self):
+        for body in (None, 'Plain text that must not be guessed into paragraphs'):
+            (self.data / 'article.json').write_text(json.dumps({
+                'url': self.url, 'body_text': body,
+                'body_html': '<article><p>Raw DOM must not be used.</p></article>',
+            }), encoding='utf-8')
+            self.generate()
+            self.assertEqual(ET.parse(self.root / 'feed.xml').findall('./channel/item'), [])
+
+    def test_daily_run_discards_cache_and_fetches_existing_url_again(self):
+        stale = self.data / 'stale.json'
+        stale.write_text('{"url":"https://example.com/stale"}')
+        fake_module = ModuleType('app.extractor')
+        async def fresh_extract(url, *, use_cache):
+            self.assertFalse(use_cache)
+            self.assertFalse(stale.exists())
+            self.assertFalse((self.data / 'article.json').exists())
+            return SimpleNamespace(
+                title='Fresh', published_at=date.today().isoformat(), body_text='<p>Fresh</p>',
+                model_dump_json=lambda **kwargs: json.dumps({'url': url, 'body_text': '<p>Fresh</p>'}),
+            )
+        fake_module.extract = AsyncMock(side_effect=fresh_extract)
+        if hasattr(run_daily, 'discover_listing'):
+            discovery = patch.object(run_daily, 'discover_listing', new=AsyncMock(return_value=[self.url]))
+        else:
+            discovery = patch.object(run_daily, 'discover_from_rss', return_value=[(self.url, date.today().isoformat())])
+        with patch.dict('sys.modules', {'app.extractor': fake_module}), discovery, \
+                patch.object(run_daily, 'DATA_DIR', self.data), patch.object(run_daily, '_generate_feed') as generate:
+            asyncio.run(run_daily.main())
+        fake_module.extract.assert_awaited_once_with(self.url, use_cache=False)
+        generate.assert_called_once_with(None)
+        files = list(self.data.glob('**/*.json'))
+        self.assertEqual(len(files), 1)
+        self.assertIn('<p>Fresh</p>', files[0].read_text())
 
     def test_invalid_version_does_not_write_any_feed(self):
         with self.assertRaises(ValueError):

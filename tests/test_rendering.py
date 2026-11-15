@@ -67,6 +67,7 @@ class RenderingTests(unittest.TestCase):
         self.assertEqual(len(soup.select('img')), 0)
         with tempfile.TemporaryDirectory() as tmp:
             dest = Path(tmp)
+            article['body_text'] = body
             (dest / 'article.json').write_text(json.dumps(article))
             with patch('run_daily.DATA_DIR', dest), patch('run_daily.Path', side_effect=lambda s: dest / s):
                 _generate_feed()

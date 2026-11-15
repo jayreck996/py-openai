@@ -32,6 +32,9 @@ jobs:
       - name: Install Playwright Chromium
         run: playwright install chromium --with-deps
 
+      - name: Run tests
+        run: python -m unittest discover -s tests -v
+
       - name: Fetch article
         env:
           ARTICLE_HTML_SNAPSHOT: source.html

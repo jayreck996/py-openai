@@ -34,10 +34,10 @@ jobs:
       - name: Install Playwright Chromium
         run: playwright install chromium --with-deps
 
-      - name: Clear cached data for fresh fetch
-        run: rm -rf data/
+      - name: Run tests
+        run: python -m unittest discover -s tests -v
 
-      - name: Discover and fetch new articles
+      - name: Clear cached data and fetch fresh articles
         run: python run_daily.py
 
       - name: Commit new articles
