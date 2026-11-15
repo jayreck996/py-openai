@@ -132,9 +132,18 @@ def _body_to_html(text: str, cover_url: str = "", body_images: list = None) -> s
         f'<img src="{cover_url}" style="max-width:100%;display:block;margin-bottom:1em">'
         if cover_url else ""
     )
-    # New extractor produces clean HTML directly — just prepend cover
+    # New extractor produces clean HTML directly — prepend cover, append body images
     if text.strip().startswith("<"):
-        return cover_html + text
+        inline_urls = set(re.findall(r'<img src="([^"]+)"', text))
+        extra = ""
+        for img in (body_images or []):
+            img_url = img.get("url", "") if isinstance(img, dict) else str(img)
+            alt = (img.get("alt") or "") if isinstance(img, dict) else ""
+            if not img_url or img_url in inline_urls or img_url == cover_url:
+                continue
+            cap = f'<figcaption style="font-size:0.85em;color:#666;margin-top:0.4em">{alt}</figcaption>' if alt else ""
+            extra += f'<figure style="margin:1.5em 0"><img src="{img_url}" alt="{alt}" style="max-width:100%;display:block">{cap}</figure>'
+        return cover_html + text + extra
 
     # Legacy: trafilatura plain text path
     text = re.sub(
