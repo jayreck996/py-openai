@@ -1,0 +1,43 @@
+name: Fetch OpenAI Article
+
+on:
+  workflow_dispatch:
+    inputs:
+      url:
+        description: "Full URL of the openai.com article to fetch"
+        required: true
+        type: string
+
+jobs:
+  fetch:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install Python dependencies
+        run: pip install -r requirements.txt
+
+      - name: Cache Playwright browsers
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ hashFiles('requirements.txt') }}
+
+      - name: Install Playwright Chromium
+        run: playwright install chromium --with-deps
+
+      - name: Fetch article
+        run: python fetch.py "${{ github.event.inputs.url }}" | tee result.json
+
+      - name: Upload JSON artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: article-${{ github.run_id }}
+          path: result.json
+          retention-days: 7
