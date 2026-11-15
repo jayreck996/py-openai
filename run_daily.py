@@ -136,6 +136,7 @@ def _generate_feed() -> None:
 
     rss = Element("rss", version="2.0")
     rss.set("xmlns:atom", "http://www.w3.org/2005/Atom")
+    rss.set("xmlns:content", "http://purl.org/rss/1.0/modules/content/")
     channel = SubElement(rss, "channel")
     SubElement(channel, "title").text = "OpenAI News"
     SubElement(channel, "link").text = "https://openai.com/news/"
@@ -151,8 +152,16 @@ def _generate_feed() -> None:
         SubElement(item, "title").text = a.get("title") or "Untitled"
         SubElement(item, "link").text = a.get("url", "")
         SubElement(item, "guid", isPermaLink="true").text = a.get("url", "")
-        if a.get("summary"):
-            SubElement(item, "description").text = a["summary"]
+        SubElement(item, "description").text = a.get("summary") or ""
+        # Full body as content:encoded — Feedly renders this as the article body
+        body = a.get("body_text") or a.get("body_html") or ""
+        if body:
+            cover = (a.get("cover_image") or {}).get("url", "")
+            html_body = (
+                f'<img src="{cover}" style="max-width:100%"><br><br>' if cover else ""
+            ) + body.replace("\n", "<br>")
+            encoded = SubElement(item, "content:encoded")
+            encoded.text = f"<![CDATA[{html_body}]]>"
         if a.get("published_at"):
             try:
                 from datetime import datetime
@@ -167,6 +176,8 @@ def _generate_feed() -> None:
             enc.set("length", "0")
 
     xml_str = parseString(tostring(rss, encoding="unicode")).toprettyxml(indent="  ")
+    # Fix CDATA blocks mangled by minidom
+    xml_str = xml_str.replace("&lt;![CDATA[", "<![CDATA[").replace("]]&gt;", "]]>")
     Path("feed.xml").write_text(xml_str, encoding="utf-8")
     print(f"Feed updated: {len(articles)} item(s) → feed.xml")
 
