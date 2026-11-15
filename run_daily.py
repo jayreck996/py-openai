@@ -28,7 +28,7 @@ DATA_DIR = Path("data")
 WINDOW_DAYS = 7
 
 
-def discover_from_rss() -> tuple[list[str], dict]:
+def discover_from_rss() -> list[str]:
     req = urllib.request.Request(
         RSS_URL,
         headers={"User-Agent": "Mozilla/5.0 (compatible; RSS reader)"},
@@ -39,7 +39,6 @@ def discover_from_rss() -> tuple[list[str], dict]:
     cutoff = date.today() - timedelta(days=WINDOW_DAYS)
     seen: set[str] = set()
     urls: list[str] = []
-    rss_meta: dict = {}
     for item in soup.find_all("item"):
         link_tag = item.find("link")
         pub_tag = item.find("pubDate")
@@ -49,25 +48,17 @@ def discover_from_rss() -> tuple[list[str], dict]:
         path = urlparse(url).path.rstrip("/")
         if not re.match(r"^/(index|blog|research)/[^/]+$", path):
             continue
-        pub_date_str = None
         if pub_tag:
             try:
                 pub_date = parsedate_to_datetime(pub_tag.text).date()
                 if pub_date < cutoff:
                     break  # RSS is newest-first; nothing older will qualify
-                pub_date_str = pub_date.isoformat()
             except Exception:
                 pass
         if url not in seen:
             seen.add(url)
             urls.append(url)
-            rss_meta[url] = {
-                "title": (item.find("title") or {}).get_text(strip=True) or None,
-                "summary": (item.find("description") or {}).get_text(strip=True) or None,
-                "published_at": pub_date_str,
-                "tags": [(item.find("category") or {}).get_text(strip=True)] if item.find("category") else [],
-            }
-    return urls, rss_meta
+    return urls
 
 
 def already_fetched_urls() -> set[str]:
@@ -92,7 +83,7 @@ async def main() -> None:
     fetched = already_fetched_urls()
 
     print(f"Discovering from RSS: {RSS_URL}")
-    found, rss_meta = discover_from_rss()
+    found = discover_from_rss()
     print(f"  Found {len(found)} links")
     new_urls = [u for u in found if u not in fetched]
 
@@ -108,26 +99,13 @@ async def main() -> None:
             print(f"  → {url}")
             try:
                 article = await extract(url)
-                rss = rss_meta.get(url, {})
                 blocked = (
                     not article.title
                     or "Verification successful" in (article.body_text or "")
                     or "Waiting for openai.com" in (article.body_text or "")
                 )
                 if blocked:
-                    print(f"    Cloudflare blocked — using RSS metadata")
-                    article = article.model_copy(update={
-                        "title": rss.get("title"),
-                        "summary": rss.get("summary"),
-                        "published_at": rss.get("published_at"),
-                        "tags": rss.get("tags", []),
-                        "body_text": rss.get("summary") or "",
-                        "body_html": None,
-                        "cover_image": None,
-                    })
-                # Skip if still no title (completely unknown article)
-                if not article.title:
-                    print(f"    Skipped (no title)")
+                    print(f"    Skipped (Cloudflare blocked)")
                     continue
                 # Skip articles published outside the window
                 if article.published_at:
