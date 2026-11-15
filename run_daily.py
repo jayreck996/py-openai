@@ -129,15 +129,26 @@ async def main() -> None:
 
 
 def _body_to_html(text: str, cover_url: str = "") -> str:
-    # Convert markdown links [label](url) → <a href="url">label</a>
     text = re.sub(r'\[([^\]]+)\]\(([^)]+)\)', r'<a href="\2">\1</a>', text)
-    # Wrap each non-empty line in <p> tags for proper paragraph spacing
-    paragraphs = "".join(f"<p>{line}</p>" for line in text.split("\n") if line.strip())
+    parts = []
+    for line in text.split("\n"):
+        line = line.strip()
+        if not line:
+            continue
+        # Short lines without trailing punctuation or list markers are section headings
+        if (
+            len(line) < 70
+            and not line[-1] in ".!?,:"
+            and not line[0] in "-*•["
+        ):
+            parts.append(f"<h2>{line}</h2>")
+        else:
+            parts.append(f"<p>{line}</p>")
     cover_html = (
         f'<img src="{cover_url}" style="max-width:100%;display:block;margin-bottom:1em">'
         if cover_url else ""
     )
-    return cover_html + paragraphs
+    return cover_html + "".join(parts)
 
 
 def _generate_feed() -> None:
@@ -165,19 +176,14 @@ def _generate_feed() -> None:
         item = SubElement(channel, "item")
         SubElement(item, "title").text = a.get("title") or "Untitled"
         SubElement(item, "link").text = a.get("url", "")
-        SubElement(item, "guid", isPermaLink="false").text = a.get("url", "") + "#v3"
+        SubElement(item, "guid", isPermaLink="false").text = a.get("url", "") + "#v4"
         body = a.get("body_text") or a.get("body_html") or ""
         cover = (a.get("cover_image") or {}).get("url", "")
+        SubElement(item, "description").text = a.get("summary") or ""
         if body:
             html_body = _body_to_html(body, cover)
-            # Put full body in description so Feedly free renders it inline
-            desc = SubElement(item, "description")
-            desc.text = f"<![CDATA[{html_body}]]>"
-            # Also keep content:encoded for other readers
             encoded = SubElement(item, "content:encoded")
             encoded.text = f"<![CDATA[{html_body}]]>"
-        else:
-            SubElement(item, "description").text = a.get("summary") or ""
         if a.get("published_at"):
             try:
                 from datetime import datetime
@@ -202,7 +208,8 @@ def _generate_feed() -> None:
     )
     Path("feed.xml").write_text(xml_str, encoding="utf-8")
     Path("feed_v2.xml").write_text(xml_str, encoding="utf-8")
-    print(f"Feed updated: {len(articles)} item(s) → feed.xml + feed_v2.xml")
+    Path("feed_v4.xml").write_text(xml_str, encoding="utf-8")
+    print(f"Feed updated: {len(articles)} item(s) → feed.xml + feed_v2.xml + feed_v4.xml")
 
 
 def _cleanup_old_data() -> None:
