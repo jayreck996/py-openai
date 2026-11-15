@@ -1,4 +1,5 @@
 import json
+import re
 import time
 from typing import Optional
 from urllib.parse import urljoin
@@ -42,13 +43,16 @@ async def extract(url: str) -> Article:
             page = await ctx.new_page()
             await page.goto(url, wait_until="networkidle", timeout=60_000)
             try:
-                await page.wait_for_selector("article, [class*='content'], main", timeout=10_000)
+                await page.wait_for_selector("article p, article h1, article h2", timeout=15_000)
             except Exception:
                 pass
             html = await page.content()
 
-            # Try DOM walk extraction first (Contentful content is pre-rendered)
-            body_text = await _extract_dom_body(page)
+            # Try RSC payload decode first (most reliable — inline in HTML)
+            body_text = _extract_rsc_body(html)
+            # Fall back to DOM walk if RSC didn't find article content
+            if not body_text:
+                body_text = await _extract_dom_body(page)
             if not body_text:
                 body_text = trafilatura.extract(
                     html,
@@ -99,6 +103,89 @@ async def extract(url: str) -> Article:
     )
     _cache[url] = (time.time(), article)
     return article
+
+
+def _extract_rsc_body(html: str) -> Optional[str]:
+    """Decode Next.js RSC payload embedded in HTML to extract article content."""
+    chunks = re.findall(r'__next_f\.push\(\[1,"((?:[^"\\]|\\.)*)"\]\)', html)
+    if not chunks:
+        return None
+
+    payload = ""
+    for chunk in chunks:
+        try:
+            payload += json.loads(f'"{chunk}"')
+        except Exception:
+            payload += chunk
+
+    # Article body is anchored by data-toc-content attribute
+    idx = payload.find('"data-toc-content"')
+    if idx < 0:
+        return None
+
+    # Walk forward from the anchor collecting all text
+    section = payload[idx:]
+    return _rsc_section_to_html(section) or None
+
+
+def _rsc_section_to_html(section: str) -> str:
+    """Convert RSC payload section to clean HTML by extracting span text nodes."""
+    parts = []
+
+    # Text lives in: ["$","span","text-N",{"children":["ACTUAL TEXT"]}]
+    # Headings in:   ["$","h2",null,{"children":"HEADING"} or {"children":["HEADING"]}]
+    # Links in:      ["$","a","link-N",{"href":"URL","children":["LINK TEXT"]}]
+
+    # Extract headings
+    for m in re.finditer(r'\["\$","(h[1-6])",[^,]*,\{[^}]*"children"\s*:\s*"([^"]+)"', section):
+        tag, text = m.group(1), m.group(2)
+        parts.append((m.start(), f"<{tag}>{_unescape(text)}</{tag}>"))
+
+    # Extract paragraphs via their span text-N children
+    # Each span carries a chunk of a paragraph; we group by parent paragraph position
+    for m in re.finditer(r'\["\$","span","text-(\d+)",\{"children":\["([^"\\](?:[^"\\]|\\.)*)"\]\}', section):
+        text = _unescape(m.group(2))
+        if text.strip():
+            parts.append((m.start(), text))
+
+    if not parts:
+        return ""
+
+    # Sort by position and assemble — consecutive text chunks join into paragraphs
+    parts.sort(key=lambda x: x[0])
+    html_parts = []
+    buf = []
+    prev_pos = -1
+
+    for pos, text in parts:
+        is_heading = text.startswith("<h")
+        if is_heading:
+            if buf:
+                html_parts.append(f"<p>{''.join(buf)}</p>")
+                buf = []
+            html_parts.append(text)
+        else:
+            # Gap > ~500 chars in payload = new paragraph
+            if buf and (pos - prev_pos) > 500:
+                html_parts.append(f"<p>{''.join(buf)}</p>")
+                buf = []
+            buf.append(text)
+        prev_pos = pos
+
+    if buf:
+        html_parts.append(f"<p>{''.join(buf)}</p>")
+
+    # Deduplicate
+    seen: list[str] = []
+    for p in html_parts:
+        if not seen or p != seen[-1]:
+            seen.append(p)
+
+    return "".join(seen)
+
+
+def _unescape(s: str) -> str:
+    return s.replace("\\n", " ").replace('\\"', '"').replace("\\'", "'").replace("\\\\", "\\").strip()
 
 
 async def _extract_dom_body(page) -> Optional[str]:
