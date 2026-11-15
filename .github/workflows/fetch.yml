@@ -33,11 +33,15 @@ jobs:
         run: playwright install chromium --with-deps
 
       - name: Fetch article
+        env:
+          ARTICLE_HTML_SNAPSHOT: source.html
         run: python fetch.py "${{ github.event.inputs.url }}" | tee result.json
 
       - name: Upload JSON artifact
         uses: actions/upload-artifact@v4
         with:
           name: article-${{ github.run_id }}
-          path: result.json
+          path: |
+            result.json
+            source.html
           retention-days: 7

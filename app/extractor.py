@@ -1,5 +1,6 @@
 import json
-import re
+import os
+from pathlib import Path
 import time
 from typing import Optional
 from urllib.parse import urljoin
@@ -10,6 +11,7 @@ from playwright.async_api import async_playwright
 
 from .models import Article, Image
 from .rendering import clean_article_html
+from .rsc import extract_rsc_article
 
 _cache: dict[str, tuple[float, Article]] = {}
 CACHE_TTL = 3600
@@ -48,12 +50,15 @@ async def extract(url: str) -> Article:
             except Exception:
                 pass
             html = await page.content()
+            # Optional diagnostic artifact for reproducing payload ordering bugs.
+            if snapshot_path := os.environ.get("ARTICLE_HTML_SNAPSHOT"):
+                Path(snapshot_path).write_text(html, encoding="utf-8")
 
             # Preserve actual block boundaries and inline markup from the rendered page.
             body_text = clean_article_html(html, url)
             # RSC remains useful when the rendered article is unavailable.
             if not body_text:
-                body_text = _extract_rsc_body(html)
+                body_text = _extract_rsc_body(html, url)
             if not body_text:
                 body_text = trafilatura.extract(
                     html,
@@ -106,158 +111,9 @@ async def extract(url: str) -> Article:
     return article
 
 
-def _extract_rsc_body(html: str) -> Optional[str]:
-    """Decode Next.js RSC payload embedded in HTML to extract article content with inline images."""
-    chunks = re.findall(r'__next_f\.push\(\[1,"((?:[^"\\]|\\.)*)"\]\)', html)
-    if not chunks:
-        return None
-
-    payload = ""
-    for chunk in chunks:
-        try:
-            payload += json.loads(f'"{chunk}"')
-        except Exception:
-            payload += chunk
-
-    # Build chunk dict for $L ref resolution (images are in lazy-loaded chunks)
-    rsc_chunks: dict[str, str] = {}
-    for line in payload.split("\n"):
-        m = re.match(r'^([0-9a-f]+):(.*)', line, re.DOTALL)
-        if m:
-            rsc_chunks[m.group(1)] = m.group(2).strip()
-
-    # Article body is anchored by data-toc-content attribute
-    idx = payload.find('"data-toc-content"')
-    if idx < 0:
-        return None
-
-    section = payload[idx:]
-    return _rsc_section_to_html(section, rsc_chunks) or None
-
-
-def _rsc_section_to_html(section: str, rsc_chunks: Optional[dict] = None) -> str:
-    """Convert RSC payload section to clean HTML with headings, inline links, and images."""
-    parts: list[tuple[int, str]] = []
-    heading_exclusions: set[int] = set()
-
-    # Contentful heading blocks: ["$","$L<id>",null,{"text":[..spans..],"headlineTag":"h2",...}]
-    # OpenAI uses a rich-text renderer component (not native h2 elements) with headlineTag prop.
-    heading_re = re.compile(
-        r'\["\$","\$L[0-9a-f]+",null,\{'
-        r'"text":\[\["\$","\$1","[^"]*",\{"children":\[\["\$","span","text-\d+",\{"children":\["((?:[^"\\]|\\.)*)"\]\}\]\]\}\]\]'
-        r',"headlineTag":"(h[1-6])"'
-    )
-    for m in heading_re.finditer(section):
-        text, tag = m.group(1), m.group(2)
-        parts.append((m.start(), f"<{tag}>{_unescape(text)}</{tag}>"))
-        # Find the inner span and mark it so we skip it in the text-span pass
-        sm = re.search(r'\["\$","span","text-\d+",\{', section[m.start():m.start() + len(m.group(0))])
-        if sm:
-            heading_exclusions.add(m.start() + sm.start())
-
-    # Legacy native h1-h6 elements with direct string children (sidebar components etc.)
-    for m in re.finditer(r'\["\$","(h[1-6])",[^,]*,\{"children":"([^"]+)"', section):
-        parts.append((m.start(), f"<{m.group(1)}>{_unescape(m.group(2))}</{m.group(1)}>"))
-
-    # Contentful inline links: ["$","$L<id>","key",{"variant":"inline","href":"URL",...}]
-    # Contentful always serializes variant before href in link component props.
-    link_map: dict[int, str] = {}  # absolute span position → href
-    for lm in re.finditer(r'\["\$","\$L[0-9a-f]+","[^"]+",\{"variant":"inline","href":"([^"]+)"', section):
-        href = lm.group(1)
-        # First text span within this link component (look ahead 400 chars)
-        end = min(lm.start() + 400, len(section))
-        sm = re.search(r'\["\$","span","text-\d+",\{"children":\["((?:[^"\\]|\\.)*)"\]\}', section[lm.start():end])
-        if sm:
-            link_map[lm.start() + sm.start()] = href
-
-    # Text spans — emit as <a> if inside a link, skip if consumed by a heading
-    for m in re.finditer(r'\["\$","span","text-\d+",\{"children":\["((?:[^"\\]|\\.)*)"\]\}', section):
-        if m.start() in heading_exclusions:
-            continue
-        text = _unescape(m.group(1))
-        if not text.strip():
-            continue
-        if m.start() in link_map:
-            parts.append((m.start(), f'<a href="{link_map[m.start()]}">{text.strip()}</a>'))
-        else:
-            parts.append((m.start(), text))
-
-    # Inline images: $L refs whose chunk contains a Contentful image asset
-    if rsc_chunks:
-        seen_refs: set[str] = set()
-        for m in re.finditer(r'\$L([0-9a-f]+)', section):
-            ref_id = m.group(1)
-            if ref_id in seen_refs:
-                continue
-            seen_refs.add(ref_id)
-            chunk_val = rsc_chunks.get(ref_id, "")
-            if '"altText"' not in chunk_val or "ctfassets" not in chunk_val:
-                continue
-            alt_m = re.search(r'"altText"\s*:\s*"([^"]+)"', chunk_val)
-            if not alt_m:
-                continue
-            alt = _unescape(alt_m.group(1))
-            if alt == "$undefined" or not alt.strip():
-                continue
-            url_m = re.search(r'"url"\s*:\s*"(//images\.ctfassets[^"]+)"', chunk_val)
-            if not url_m:
-                continue
-            img_url = "https:" + url_m.group(1)
-            cap_m = re.search(r'"caption"\s*:\s*"([^"$][^"]*)"', chunk_val)
-            cap_text = _unescape(cap_m.group(1)) if cap_m else ""
-            cap_html = (
-                f'<figcaption style="font-size:0.85em;color:#666;margin-top:0.4em">{cap_text}</figcaption>'
-                if cap_text else ""
-            )
-            parts.append((m.start(), (
-                f'<figure style="margin:1.5em 0">'
-                f'<img src="{img_url}" alt="{alt}" style="max-width:100%;display:block">'
-                f'{cap_html}</figure>'
-            )))
-
-    if not parts:
-        return ""
-
-    # Sort by position and assemble — inline text joins into <p>; headings/figures break them
-    parts.sort(key=lambda x: x[0])
-    html_parts: list[str] = []
-    buf: list[str] = []
-    prev_pos = -1
-
-    for pos, text in parts:
-        is_block = text.startswith("<h") or text.startswith("<figure")
-        if is_block:
-            if buf:
-                joined = "".join(buf).strip()
-                if joined:
-                    html_parts.append(f"<p>{joined}</p>")
-                buf = []
-            html_parts.append(text)
-        else:
-            if buf and (pos - prev_pos) > 500:
-                joined = "".join(buf).strip()
-                if joined:
-                    html_parts.append(f"<p>{joined}</p>")
-                buf = []
-            buf.append(text)
-        prev_pos = pos
-
-    if buf:
-        joined = "".join(buf).strip()
-        if joined:
-            html_parts.append(f"<p>{joined}</p>")
-
-    seen: list[str] = []
-    for p in html_parts:
-        if not seen or p != seen[-1]:
-            seen.append(p)
-
-    return "".join(seen)
-
-
-def _unescape(s: str) -> str:
-    # No .strip() — RSC spans include meaningful leading/trailing whitespace for word joining
-    return s.replace("\\n", " ").replace('\\"', '"').replace("\\'", "'").replace("\\\\", "\\")
+def _extract_rsc_body(html: str, base_url: str = "") -> Optional[str]:
+    """Render the article tree, resolving images at their child positions."""
+    return extract_rsc_article(html, base_url)
 
 
 async def _extract_dom_body(page) -> Optional[str]:
