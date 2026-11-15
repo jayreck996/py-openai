@@ -9,9 +9,12 @@ import json
 import re
 import shutil
 import sys
-from datetime import date, timedelta
+from datetime import date, timedelta, timezone
+from email.utils import format_datetime
 from pathlib import Path
 from urllib.parse import urljoin, urlparse
+from xml.etree.ElementTree import Element, SubElement, tostring
+from xml.dom.minidom import parseString
 
 from bs4 import BeautifulSoup
 from playwright.async_api import async_playwright
@@ -120,6 +123,52 @@ async def main() -> None:
             print(f"    ERROR: {exc}", file=sys.stderr)
 
     _cleanup_old_data()
+    _generate_feed()
+
+
+def _generate_feed() -> None:
+    articles = []
+    for f in sorted(DATA_DIR.glob("**/*.json"), reverse=True):
+        try:
+            articles.append(json.loads(f.read_text(encoding="utf-8")))
+        except Exception:
+            continue
+
+    rss = Element("rss", version="2.0")
+    rss.set("xmlns:atom", "http://www.w3.org/2005/Atom")
+    channel = SubElement(rss, "channel")
+    SubElement(channel, "title").text = "OpenAI News"
+    SubElement(channel, "link").text = "https://openai.com/news/"
+    SubElement(channel, "description").text = "Latest articles from OpenAI"
+    SubElement(channel, "language").text = "en"
+    atom_link = SubElement(channel, "atom:link")
+    atom_link.set("href", "https://raw.githubusercontent.com/jayreck996/py-openai/master/feed.xml")
+    atom_link.set("rel", "self")
+    atom_link.set("type", "application/rss+xml")
+
+    for a in articles:
+        item = SubElement(channel, "item")
+        SubElement(item, "title").text = a.get("title") or "Untitled"
+        SubElement(item, "link").text = a.get("url", "")
+        SubElement(item, "guid", isPermaLink="true").text = a.get("url", "")
+        if a.get("summary"):
+            SubElement(item, "description").text = a["summary"]
+        if a.get("published_at"):
+            try:
+                from datetime import datetime
+                dt = datetime.fromisoformat(a["published_at"].replace("Z", "+00:00"))
+                SubElement(item, "pubDate").text = format_datetime(dt)
+            except Exception:
+                pass
+        if a.get("cover_image") and a["cover_image"].get("url"):
+            enc = SubElement(item, "enclosure")
+            enc.set("url", a["cover_image"]["url"])
+            enc.set("type", "image/jpeg")
+            enc.set("length", "0")
+
+    xml_str = parseString(tostring(rss, encoding="unicode")).toprettyxml(indent="  ")
+    Path("feed.xml").write_text(xml_str, encoding="utf-8")
+    print(f"Feed updated: {len(articles)} item(s) → feed.xml")
 
 
 def _cleanup_old_data() -> None:
