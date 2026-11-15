@@ -106,7 +106,7 @@ async def extract(url: str) -> Article:
 
 
 def _extract_rsc_body(html: str) -> Optional[str]:
-    """Decode Next.js RSC payload embedded in HTML to extract article content."""
+    """Decode Next.js RSC payload embedded in HTML to extract article content with inline images."""
     chunks = re.findall(r'__next_f\.push\(\[1,"((?:[^"\\]|\\.)*)"\]\)', html)
     if not chunks:
         return None
@@ -118,54 +118,90 @@ def _extract_rsc_body(html: str) -> Optional[str]:
         except Exception:
             payload += chunk
 
+    # Build chunk dict for $L ref resolution (images are in lazy-loaded chunks)
+    rsc_chunks: dict[str, str] = {}
+    for line in payload.split("\n"):
+        m = re.match(r'^([0-9a-f]+):(.*)', line, re.DOTALL)
+        if m:
+            rsc_chunks[m.group(1)] = m.group(2).strip()
+
     # Article body is anchored by data-toc-content attribute
     idx = payload.find('"data-toc-content"')
     if idx < 0:
         return None
 
-    # Walk forward from the anchor collecting all text
     section = payload[idx:]
-    return _rsc_section_to_html(section) or None
+    return _rsc_section_to_html(section, rsc_chunks) or None
 
 
-def _rsc_section_to_html(section: str) -> str:
-    """Convert RSC payload section to clean HTML by extracting span text nodes."""
-    parts = []
+def _rsc_section_to_html(section: str, rsc_chunks: Optional[dict] = None) -> str:
+    """Convert RSC payload section to clean HTML with inline images."""
+    parts: list[tuple[int, str]] = []
 
-    # Text lives in: ["$","span","text-N",{"children":["ACTUAL TEXT"]}]
-    # Headings in:   ["$","h2",null,{"children":"HEADING"} or {"children":["HEADING"]}]
-    # Links in:      ["$","a","link-N",{"href":"URL","children":["LINK TEXT"]}]
-
-    # Extract headings
+    # Headings: ["$","h2",null,{"children":"TEXT"}]
     for m in re.finditer(r'\["\$","(h[1-6])",[^,]*,\{[^}]*"children"\s*:\s*"([^"]+)"', section):
         tag, text = m.group(1), m.group(2)
         parts.append((m.start(), f"<{tag}>{_unescape(text)}</{tag}>"))
 
-    # Extract paragraphs via their span text-N children
-    # Each span carries a chunk of a paragraph; we group by parent paragraph position
+    # Text spans: ["$","span","text-N",{"children":["TEXT"]}]
     for m in re.finditer(r'\["\$","span","text-(\d+)",\{"children":\["([^"\\](?:[^"\\]|\\.)*)"\]\}', section):
         text = _unescape(m.group(2))
         if text.strip():
             parts.append((m.start(), text))
 
+    # Inline images: $L refs whose chunk contains a Contentful image asset
+    # Identified by "altText" key (Contentful mediaItem) + ctfassets URL in "file"."url"
+    if rsc_chunks:
+        seen_refs: set[str] = set()
+        for m in re.finditer(r'\$L([0-9a-f]+)', section):
+            ref_id = m.group(1)
+            if ref_id in seen_refs:
+                continue
+            seen_refs.add(ref_id)
+            chunk_val = rsc_chunks.get(ref_id, "")
+            if '"altText"' not in chunk_val or "ctfassets" not in chunk_val:
+                continue
+            alt_m = re.search(r'"altText"\s*:\s*"([^"]+)"', chunk_val)
+            if not alt_m:
+                continue
+            alt = _unescape(alt_m.group(1))
+            # "$undefined" is RSC encoding for null — not a real content image
+            if alt == "$undefined" or not alt.strip():
+                continue
+            url_m = re.search(r'"url"\s*:\s*"(//images\.ctfassets[^"]+)"', chunk_val)
+            if not url_m:
+                continue
+            img_url = "https:" + url_m.group(1)
+            cap_m = re.search(r'"caption"\s*:\s*"([^"$][^"]*)"', chunk_val)
+            cap_text = _unescape(cap_m.group(1)) if cap_m else ""
+            cap_html = (
+                f'<figcaption style="font-size:0.85em;color:#666;margin-top:0.4em">{cap_text}</figcaption>'
+                if cap_text else ""
+            )
+            img_html = (
+                f'<figure style="margin:1.5em 0">'
+                f'<img src="{img_url}" alt="{alt}" style="max-width:100%;display:block">'
+                f'{cap_html}</figure>'
+            )
+            parts.append((m.start(), img_html))
+
     if not parts:
         return ""
 
-    # Sort by position and assemble — consecutive text chunks join into paragraphs
+    # Sort by position and assemble — text chunks join into paragraphs; headings/figures break them
     parts.sort(key=lambda x: x[0])
-    html_parts = []
-    buf = []
+    html_parts: list[str] = []
+    buf: list[str] = []
     prev_pos = -1
 
     for pos, text in parts:
-        is_heading = text.startswith("<h")
-        if is_heading:
+        is_block = text.startswith("<h") or text.startswith("<figure")
+        if is_block:
             if buf:
                 html_parts.append(f"<p>{''.join(buf)}</p>")
                 buf = []
             html_parts.append(text)
         else:
-            # Gap > ~500 chars in payload = new paragraph
             if buf and (pos - prev_pos) > 500:
                 html_parts.append(f"<p>{''.join(buf)}</p>")
                 buf = []
@@ -175,7 +211,7 @@ def _rsc_section_to_html(section: str) -> str:
     if buf:
         html_parts.append(f"<p>{''.join(buf)}</p>")
 
-    # Deduplicate
+    # Deduplicate consecutive identical blocks
     seen: list[str] = []
     for p in html_parts:
         if not seen or p != seen[-1]:

@@ -34,6 +34,9 @@ jobs:
       - name: Install Playwright Chromium
         run: playwright install chromium --with-deps
 
+      - name: Clear cached data for fresh fetch
+        run: rm -rf data/
+
       - name: Discover and fetch new articles
         run: python run_daily.py
 
@@ -41,6 +44,6 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add data/ feed.xml feed_v10.xml
+          git add data/ feed.xml feed_v11.xml
           git diff --staged --quiet && echo "Nothing new to commit." || \
             git commit -m "chore: daily fetch $(date -u +%Y-%m-%d)" && git push

@@ -134,12 +134,14 @@ def _body_to_html(text: str, cover_url: str = "", body_images: list = None) -> s
     )
     # New extractor produces clean HTML directly — prepend cover, append body images
     if text.strip().startswith("<"):
-        inline_urls = set(re.findall(r'<img src="([^"]+)"', text))
+        # Strip query params for dedup — RSC uses clean URLs, DOM uses query-param URLs
+        inline_bases = set(u.split("?")[0] for u in re.findall(r'<img src="([^"]+)"', text))
+        cover_base = cover_url.split("?")[0] if cover_url else ""
         extra = ""
         for img in (body_images or []):
             img_url = img.get("url", "") if isinstance(img, dict) else str(img)
             alt = (img.get("alt") or "") if isinstance(img, dict) else ""
-            if not img_url or img_url in inline_urls or img_url == cover_url:
+            if not img_url or img_url.split("?")[0] in inline_bases or img_url.split("?")[0] == cover_base:
                 continue
             cap = f'<figcaption style="font-size:0.85em;color:#666;margin-top:0.4em">{alt}</figcaption>' if alt else ""
             extra += f'<figure style="margin:1.5em 0"><img src="{img_url}" alt="{alt}" style="max-width:100%;display:block">{cap}</figure>'
@@ -199,7 +201,7 @@ def _generate_feed() -> None:
         item = SubElement(channel, "item")
         SubElement(item, "title").text = a.get("title") or "Untitled"
         SubElement(item, "link").text = a.get("url", "")
-        SubElement(item, "guid", isPermaLink="false").text = a.get("url", "") + "#v10"
+        SubElement(item, "guid", isPermaLink="false").text = a.get("url", "") + "#v11"
         body = a.get("body_text") or a.get("body_html") or ""
         cover = (a.get("cover_image") or {}).get("url", "")
         body_images = a.get("images") or []
@@ -231,8 +233,8 @@ def _generate_feed() -> None:
         flags=re.DOTALL,
     )
     Path("feed.xml").write_text(xml_str, encoding="utf-8")
-    Path("feed_v10.xml").write_text(xml_str, encoding="utf-8")
-    print(f"Feed updated: {len(articles)} item(s) → feed.xml + feed_v10.xml")
+    Path("feed_v11.xml").write_text(xml_str, encoding="utf-8")
+    print(f"Feed updated: {len(articles)} item(s) → feed.xml + feed_v11.xml")
 
 
 def _cleanup_old_data() -> None:
