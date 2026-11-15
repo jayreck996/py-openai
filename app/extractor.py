@@ -9,6 +9,7 @@ from bs4 import BeautifulSoup
 from playwright.async_api import async_playwright
 
 from .models import Article, Image
+from .rendering import clean_article_html
 
 _cache: dict[str, tuple[float, Article]] = {}
 CACHE_TTL = 3600
@@ -48,11 +49,11 @@ async def extract(url: str) -> Article:
                 pass
             html = await page.content()
 
-            # RSC payload first — embedded in HTML, works even on Cloudflare-challenged pages
-            body_text = _extract_rsc_body(html)
-            # DOM walk fallback if RSC found nothing
+            # Preserve actual block boundaries and inline markup from the rendered page.
+            body_text = clean_article_html(html, url)
+            # RSC remains useful when the rendered article is unavailable.
             if not body_text:
-                body_text = await _extract_dom_body(page)
+                body_text = _extract_rsc_body(html)
             if not body_text:
                 body_text = trafilatura.extract(
                     html,
@@ -260,98 +261,8 @@ def _unescape(s: str) -> str:
 
 
 async def _extract_dom_body(page) -> Optional[str]:
-    """Walk the rendered article DOM to extract clean HTML with correct heading levels."""
-    result = await page.evaluate("""
-    () => {
-        // Prefer [data-toc-content] (OpenAI article body) over generic article element
-        const root = document.querySelector('[data-toc-content]') || document.querySelector('article');
-        if (!root) return null;
-        const clone = root.cloneNode(true);
-        clone.querySelectorAll(
-            'script,style,nav,button,footer,sup,aside,[role="navigation"],[data-testid="share"]'
-        ).forEach(e => e.remove());
-
-        const skipHeadings = new Set(['Author', 'Acknowledgments', 'Footnotes', 'References', 'Keep reading', 'OpenAI <3 startups']);
-        const skipText = new Set(['Release', 'Research', 'Product', 'Company', 'Featured',
-                                  'Listen to article', 'Read aloud']);
-
-        function extractHtml(node) {
-            const parts = [];
-            for (const child of node.childNodes) {
-                if (child.nodeType === 3) {
-                    const t = child.textContent
-                        .replace(/\\(opens in a new window\\)/g, '')
-                        .replace(/\\n+/g, ' ')
-                        .trim();
-                    if (t && t.length > 2 && !skipText.has(t) && !/^\\d+:\\d+$/.test(t))
-                        parts.push(t);
-                    continue;
-                }
-                if (child.nodeType !== 1) continue;
-                const tag = child.tagName.toLowerCase();
-                if (['script','style','button','nav','sup','aside'].includes(tag)) continue;
-
-                if (['h2','h3','h4'].includes(tag)) {
-                    const text = child.innerText.trim();
-                    if (text && !skipHeadings.has(text))
-                        parts.push(`<${tag}>${text}</${tag}>`);
-                } else if (tag === 'p') {
-                    let html = '';
-                    for (const n of child.childNodes) {
-                        if (n.nodeType === 3) {
-                            html += n.textContent.replace(/\\(opens in a new window\\)/g, '');
-                        } else if (n.tagName === 'A') {
-                            const text = n.innerText.replace(/\\(opens in a new window\\)/g, '').trim();
-                            html += `<a href="${n.href}">${text}</a>`;
-                        } else if (['STRONG','B'].includes(n.tagName)) {
-                            html += `<strong>${n.innerText}</strong>`;
-                        } else if (['EM','I'].includes(n.tagName)) {
-                            html += `<em>${n.innerText}</em>`;
-                        } else if (n.tagName === 'CODE') {
-                            html += `<code>${n.innerText}</code>`;
-                        } else {
-                            html += n.innerText || '';
-                        }
-                    }
-                    html = html.replace(/\\(opens in a new window\\)/g, '').trim();
-                    if (html && html.length > 5) parts.push(`<p>${html}</p>`);
-                } else if (tag === 'blockquote') {
-                    const text = child.innerText.trim();
-                    if (text) parts.push(`<blockquote><p>${text}</p></blockquote>`);
-                } else if (tag === 'figure') {
-                    const img = child.querySelector('img');
-                    if (img && img.src && !img.src.startsWith('data:')) {
-                        const cap = child.querySelector('figcaption');
-                        const capHtml = cap
-                            ? `<figcaption style="font-size:0.85em;color:#666;margin-top:0.4em">${cap.innerText.trim()}</figcaption>`
-                            : '';
-                        parts.push(
-                            `<figure style="margin:1.5em 0">` +
-                            `<img src="${img.src}" alt="${img.alt || ''}" style="max-width:100%;display:block">` +
-                            `${capHtml}</figure>`
-                        );
-                    }
-                } else if (tag === 'img' && child.src && !child.src.startsWith('data:')) {
-                    parts.push(
-                        `<figure style="margin:1.5em 0">` +
-                        `<img src="${child.src}" alt="${child.alt || ''}" style="max-width:100%;display:block">` +
-                        `</figure>`
-                    );
-                } else if (tag === 'ul' || tag === 'ol') {
-                    const items = [...child.querySelectorAll('li')]
-                        .map(li => `<li>${li.innerText.trim()}</li>`).join('');
-                    if (items) parts.push(`<${tag}>${items}</${tag}>`);
-                } else {
-                    parts.push(...extractHtml(child));
-                }
-            }
-            return parts;
-        }
-        const html = extractHtml(clone).join('');
-        return html.length > 100 ? html : null;
-    }
-    """)
-    return result or None
+    """Render semantic article HTML without flattening nested inline elements."""
+    return clean_article_html(await page.content(), page.url)
 
 
 def _meta(soup: BeautifulSoup, name: str) -> Optional[str]:

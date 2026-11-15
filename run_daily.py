@@ -20,7 +20,7 @@ from xml.dom.minidom import parseString
 
 from bs4 import BeautifulSoup
 
-from app.extractor import extract
+from app.rendering import clean_article_html
 
 RSS_URL = "https://openai.com/news/rss.xml"
 
@@ -83,6 +83,8 @@ def url_to_slug(url: str) -> str:
 
 
 async def main() -> None:
+    from app.extractor import extract
+
     DATA_DIR.mkdir(exist_ok=True)
     fetched = already_fetched_urls()
 
@@ -140,20 +142,14 @@ def _body_to_html(text: str, cover_url: str = "", body_images: list = None) -> s
         f'<img src="{cover_url}" style="max-width:100%;display:block;margin-bottom:1em">'
         if cover_url else ""
     )
-    # New extractor produces clean HTML directly — prepend cover, append body images
+    # Structured HTML already contains images in their original positions.
     if text.strip().startswith("<"):
-        # Strip query params for dedup — RSC uses clean URLs, DOM uses query-param URLs
-        inline_bases = set(u.split("?")[0] for u in re.findall(r'<img src="([^"]+)"', text))
-        cover_base = cover_url.split("?")[0] if cover_url else ""
-        extra = ""
-        for img in (body_images or []):
-            img_url = img.get("url", "") if isinstance(img, dict) else str(img)
-            alt = (img.get("alt") or "") if isinstance(img, dict) else ""
-            if not img_url or img_url.split("?")[0] in inline_bases or img_url.split("?")[0] == cover_base:
-                continue
-            cap = f'<figcaption style="font-size:0.85em;color:#666;margin-top:0.4em">{alt}</figcaption>' if alt else ""
-            extra += f'<figure style="margin:1.5em 0"><img src="{img_url}" alt="{alt}" style="max-width:100%;display:block">{cap}</figure>'
-        return cover_html + text + extra
+        inline_bases = {
+            u.split("?")[0] for u in re.findall(r'<img[^>]+src=["\']([^"\']+)', text)
+        }
+        if cover_url.split("?")[0] in inline_bases:
+            cover_html = ""
+        return cover_html + text
 
     # Legacy: trafilatura plain text path
     text = re.sub(
@@ -210,7 +206,11 @@ def _generate_feed() -> None:
         SubElement(item, "title").text = a.get("title") or "Untitled"
         SubElement(item, "link").text = a.get("url", "")
         SubElement(item, "guid", isPermaLink="false").text = a.get("url", "") + "#v12"
-        body = a.get("body_text") or a.get("body_html") or ""
+        # Re-render saved DOM too, so existing articles benefit without a refetch.
+        body = (
+            clean_article_html(a.get("body_html") or "", a.get("url") or "")
+            or a.get("body_text") or ""
+        )
         cover = (a.get("cover_image") or {}).get("url", "")
         body_images = a.get("images") or []
         SubElement(item, "description").text = a.get("summary") or ""
@@ -258,4 +258,5 @@ def _cleanup_old_data() -> None:
             pass  # skip non-date directories
 
 
-asyncio.run(main())
+if __name__ == "__main__":
+    asyncio.run(main())
