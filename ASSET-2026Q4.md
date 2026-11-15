@@ -9,6 +9,16 @@ REQUIRED FORMAT FOR EACH ASSET ENTRY:
 
 ## ASSET:{NAME OF ENVIRONMENT} {YYYY-MM-DD HH:MM} → {CONTENT}
 
+## ASSET:py-openai 2026-11-15 21:32 → Correct inline image positions, permanent production feed, strict fresh fetching
+
+- React Flight tree traversal replaces payload-offset regex extraction. Lazy references resolve at their actual child positions; all four Businesses in ChatGPT screenshots were verified against the captured source.
+- Production output is always `feed.xml`, with stable article-URL GUIDs. Daily workflows commit `data/` and `feed.xml` only.
+- Versioned feeds are testing snapshots: `python run_daily.py --feed-only --test-version 15` also creates `feed_v15.xml` without changing production GUIDs or existing snapshots.
+- Extraction uses the structured React Flight article only. DOM, Trafilatura, and plain-text content fallbacks are removed; articles without structured content are skipped.
+- Every daily run clears saved article data, bypasses the in-memory extraction cache, and fetches all discovered URLs. The rolling publication window remains 7 days.
+- Validation: 21 tests passed on GitHub; a live structured-only fetch of Businesses in ChatGPT succeeded. Manual fetch artifacts can include `source.html` for reproducing extraction issues.
+- Implementation commits: `6239444` (verified image positions), `bb6af2f` (permanent feed), and `362d645` (strict extraction and fresh fetching).
+
 ## ASSET:py-openai 2026-11-15 20:30 → RSC headings, inline links, spacing fixed — mirrors Anthropic output
 
 Fixed RSC extractor to produce clean semantic HTML matching Anthropic's output quality.
