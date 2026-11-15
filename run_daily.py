@@ -40,11 +40,12 @@ async def discover_listing(listing_url: str) -> list[str]:
                 )
             )
             page = await ctx.new_page()
-            await page.goto(listing_url, wait_until="networkidle", timeout=30_000)
+            await page.goto(listing_url, wait_until="load", timeout=60_000)
             try:
-                await page.wait_for_selector("a[href]", timeout=8_000)
+                await page.wait_for_selector("a[href]", timeout=10_000)
             except Exception:
                 pass
+            await page.wait_for_timeout(3_000)  # let React finish rendering
             html = await page.content()
         finally:
             await browser.close()

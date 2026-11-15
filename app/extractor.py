@@ -85,10 +85,10 @@ async def _render(url: str) -> str:
                 )
             )
             page = await ctx.new_page()
-            await page.goto(url, wait_until="networkidle", timeout=30_000)
+            await page.goto(url, wait_until="load", timeout=60_000)
             # OpenAI blog uses a React SPA; wait for the article body to hydrate
             try:
-                await page.wait_for_selector("article, [class*='content'], main", timeout=8_000)
+                await page.wait_for_selector("article, [class*='content'], main", timeout=10_000)
             except Exception:
                 pass
             return await page.content()
