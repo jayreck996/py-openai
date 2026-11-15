@@ -193,7 +193,7 @@ def _generate_feed() -> None:
         item = SubElement(channel, "item")
         SubElement(item, "title").text = a.get("title") or "Untitled"
         SubElement(item, "link").text = a.get("url", "")
-        SubElement(item, "guid", isPermaLink="false").text = a.get("url", "") + "#v4"
+        SubElement(item, "guid", isPermaLink="false").text = a.get("url", "") + "#v5"
         body = a.get("body_text") or a.get("body_html") or ""
         cover = (a.get("cover_image") or {}).get("url", "")
         body_images = a.get("images") or []
@@ -225,9 +225,8 @@ def _generate_feed() -> None:
         flags=re.DOTALL,
     )
     Path("feed.xml").write_text(xml_str, encoding="utf-8")
-    Path("feed_v2.xml").write_text(xml_str, encoding="utf-8")
-    Path("feed_v4.xml").write_text(xml_str, encoding="utf-8")
-    print(f"Feed updated: {len(articles)} item(s) → feed.xml + feed_v2.xml + feed_v4.xml")
+    Path("feed_v5.xml").write_text(xml_str, encoding="utf-8")
+    print(f"Feed updated: {len(articles)} item(s) → feed.xml + feed_v5.xml")
 
 
 def _cleanup_old_data() -> None:
