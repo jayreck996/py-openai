@@ -205,7 +205,7 @@ def _generate_feed() -> None:
         item = SubElement(channel, "item")
         SubElement(item, "title").text = a.get("title") or "Untitled"
         SubElement(item, "link").text = a.get("url", "")
-        SubElement(item, "guid", isPermaLink="false").text = a.get("url", "") + "#v13"
+        SubElement(item, "guid", isPermaLink="false").text = a.get("url", "") + "#v13-layout2"
         # Re-render saved DOM too, so existing articles benefit without a refetch.
         body = (
             clean_article_html(a.get("body_html") or "", a.get("url") or "")

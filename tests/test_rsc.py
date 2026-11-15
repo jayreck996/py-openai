@@ -1,4 +1,5 @@
 import json
+from pathlib import Path
 import unittest
 
 from bs4 import BeautifulSoup
@@ -72,6 +73,22 @@ class RscTests(unittest.TestCase):
         soup = BeautifulSoup(extract_rsc_article(source), 'lxml')
         self.assertEqual(soup.p.text, text)
         self.assertEqual(soup.img['src'], 'https://example.com/image.png')
+
+    def test_real_businesses_article_image_paragraphs(self):
+        source = (Path(__file__).parent / 'fixtures/businesses-rsc.html').read_text(encoding='utf-8')
+        body = extract_rsc_article(source, 'https://openai.com/index/introducing-businesses-chatgpt/')
+        soup = BeautifulSoup(body, 'lxml')
+        images = soup.select('img')
+        self.assertEqual(len(images), 4)
+        self.assertEqual([i.find_previous('p').get_text().strip().split('.')[0] for i in images], [
+            'Any eligible business located where ChatGPT is available can claim their business in ChatGPT through Business Hub',
+            'We’ve designed these insights to protect user privacy',
+            'When a business appears in a model response, people can click to see the business’s ChatGPT profile',
+            'Business Agents are now available to eligible ecommerce and online service businesses in the United States',
+        ])
+        self.assertEqual(len(soup.select('h2')), 4)
+        self.assertNotIn('Internal Server Error', body)
+        self.assertNotIn('Keep reading', body)
 
     def test_missing_article_returns_none(self):
         self.assertIsNone(extract_rsc_article(page([('0', {'preload': '//example.com/image.png'})])))

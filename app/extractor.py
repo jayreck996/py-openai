@@ -54,11 +54,10 @@ async def extract(url: str) -> Article:
             if snapshot_path := os.environ.get("ARTICLE_HTML_SNAPSHOT"):
                 Path(snapshot_path).write_text(html, encoding="utf-8")
 
-            # Preserve actual block boundaries and inline markup from the rendered page.
-            body_text = clean_article_html(html, url)
-            # RSC remains useful when the rendered article is unavailable.
+            # Follow the article tree, including images absent from an incomplete DOM.
+            body_text = _extract_rsc_body(html, url)
             if not body_text:
-                body_text = _extract_rsc_body(html, url)
+                body_text = clean_article_html(html, url)
             if not body_text:
                 body_text = trafilatura.extract(
                     html,
@@ -91,7 +90,9 @@ async def extract(url: str) -> Article:
     )
     og_image = _meta(soup, "og:image") or _meta(soup, "twitter:image")
     cover_image = Image(url=og_image) if og_image else None
-    body_html = _body_html(soup)
+    body_html = (
+        body_text if body_text and body_text.lstrip().startswith("<") else _body_html(soup)
+    )
     images = _body_images(soup, url)
     tags = _extract_tags(soup)
 
