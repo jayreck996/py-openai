@@ -165,7 +165,7 @@ def _generate_feed() -> None:
         item = SubElement(channel, "item")
         SubElement(item, "title").text = a.get("title") or "Untitled"
         SubElement(item, "link").text = a.get("url", "")
-        SubElement(item, "guid", isPermaLink="false").text = a.get("url", "") + "#v2"
+        SubElement(item, "guid", isPermaLink="false").text = a.get("url", "") + "#v3"
         body = a.get("body_text") or a.get("body_html") or ""
         cover = (a.get("cover_image") or {}).get("url", "")
         if body:
