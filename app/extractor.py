@@ -49,7 +49,7 @@ async def extract(url: str) -> Article:
 
     body_text = trafilatura.extract(
         html,
-        include_images=False,
+        include_images=True,
         include_links=True,
         no_fallback=False,
         favor_precision=True,
