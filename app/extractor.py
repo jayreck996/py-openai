@@ -20,21 +20,31 @@ async def extract(url: str) -> Article:
             return article
 
     async with async_playwright() as p:
-        browser = await p.chromium.launch(headless=True)
+        browser = await p.chromium.launch(
+            headless=True,
+            args=["--disable-blink-features=AutomationControlled"],
+        )
         try:
             ctx = await browser.new_context(
                 user_agent=(
                     "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
                     "(KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36"
-                )
+                ),
+                viewport={"width": 1280, "height": 800},
+                extra_http_headers={
+                    "Accept-Language": "en-US,en;q=0.9",
+                    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+                },
+            )
+            await ctx.add_init_script(
+                "Object.defineProperty(navigator, 'webdriver', {get: () => undefined})"
             )
             page = await ctx.new_page()
-            await page.goto(url, wait_until="load", timeout=60_000)
+            await page.goto(url, wait_until="networkidle", timeout=60_000)
             try:
                 await page.wait_for_selector("article, [class*='content'], main", timeout=10_000)
             except Exception:
                 pass
-            await page.wait_for_timeout(3_000)
             html = await page.content()
 
             # Try DOM walk extraction first (Contentful content is pre-rendered)
