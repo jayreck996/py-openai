@@ -1,0 +1,59 @@
+<?xml version="1.0" ?>
+<rss xmlns:atom="http://www.w3.org/2005/Atom" version="2.0">
+  <channel>
+    <title>OpenAI News</title>
+    <link>https://openai.com/news/</link>
+    <description>Latest articles from OpenAI</description>
+    <language>en</language>
+    <atom:link href="https://raw.githubusercontent.com/jayreck996/py-openai/master/feed.xml" rel="self" type="application/rss+xml"/>
+    <item>
+      <title>Introducing GPT-6.1 Sol</title>
+      <link>https://openai.com/index/introducing-gpt-6-1-sol</link>
+      <guid isPermaLink="true">https://openai.com/index/introducing-gpt-6-1-sol</guid>
+      <description>Meet GPT-6.1 Sol: near-Astra intelligence for coding, computer use, and professional work at one-fifth of Astra’s standard API input and output token prices.</description>
+      <enclosure url="https://images.ctfassets.net/kftzwdyauwt9/1Xa7inzcCfsGE5aV3QqeN3/4f3689ae92e04b18569f9eaf919e7174/GPT-6-1-Sol_16x9.png" type="image/jpeg" length="0"/>
+    </item>
+    <item>
+      <title>Introducing GPT-5.5</title>
+      <link>https://openai.com/index/introducing-gpt-5-5</link>
+      <guid isPermaLink="true">https://openai.com/index/introducing-gpt-5-5</guid>
+      <description>This post introduced GPT-5.5, a model built for complex tasks like coding, research, and data analysis across tools.</description>
+      <enclosure url="https://images.ctfassets.net/kftzwdyauwt9/2Bh47W4cA48dvG5FbDtNQH/5897109fb0de6fc3125c0c35c4f60001/Hero_Art_Card_16x9.jpg?w=1600&amp;h=900&amp;fit=fill" type="image/jpeg" length="0"/>
+    </item>
+    <item>
+      <title>Introducing Businesses in ChatGPT</title>
+      <link>https://openai.com/index/introducing-businesses-chatgpt</link>
+      <guid isPermaLink="true">https://openai.com/index/introducing-businesses-chatgpt</guid>
+      <description>Manage your business information, get insights about how your business shows up, and turn interest into action in ChatGPT.</description>
+      <enclosure url="https://images.ctfassets.net/kftzwdyauwt9/7Eicp7g84HA3PCzyVJTfbT/d423890d5a1a863bf69a57bcbbbf6e99/business-agents-blog-social.png?w=1600&amp;h=900&amp;fit=fill" type="image/jpeg" length="0"/>
+    </item>
+    <item>
+      <title>Helping caregivers use AI in everyday life</title>
+      <link>https://openai.com/index/helping-caregivers-use-ai-in-everyday-life</link>
+      <guid isPermaLink="true">https://openai.com/index/helping-caregivers-use-ai-in-everyday-life</guid>
+      <description>OpenAI Academy is bringing free, hands-on ChatGPT workshops to caregivers in five U.S. cities, helping them build practical AI skills for everyday life.</description>
+      <enclosure url="https://images.ctfassets.net/kftzwdyauwt9/5hU7ON7hfir24W1E1vtQLV/8eb49679510e09c2d19d0ad918229de4/helping-caregivers-use-ai-in-everyday-life-social.png?w=1600&amp;h=900&amp;fit=fill" type="image/jpeg" length="0"/>
+    </item>
+    <item>
+      <title>GPT-5.6: Frontier intelligence that scales with your ambition</title>
+      <link>https://openai.com/index/gpt-5-6</link>
+      <guid isPermaLink="true">https://openai.com/index/gpt-5-6</guid>
+      <description>More intelligence from every token, stronger performance per dollar, and more capability on demand for your hardest work.</description>
+      <enclosure url="https://images.ctfassets.net/kftzwdyauwt9/3T0kxQLJk1VcXVxMwXF97J/4345df401f2b08ed6a1eef88c9588d2e/OAI_ChatGPTWork_ModelBlog_OpenGraph_16x9_1200x630.png?w=1600&amp;h=900&amp;fit=fill" type="image/jpeg" length="0"/>
+    </item>
+    <item>
+      <title>Control Room: A central system to track and stop model workloads across our research infrastructure</title>
+      <link>https://openai.com/index/control-room</link>
+      <guid isPermaLink="true">https://openai.com/index/control-room</guid>
+      <description>Learn how OpenAI’s Control Room tracks model workloads across our research infrastructure and can rapidly stop them when safety or security concerns arise.</description>
+      <enclosure url="https://images.ctfassets.net/kftzwdyauwt9/7CRGR1hiay1UfPVqjUSdAk/da9d8e1e61347fdae6d40e0a72962731/introducing-control-room-social.png?w=1600&amp;h=900&amp;fit=fill" type="image/jpeg" length="0"/>
+    </item>
+    <item>
+      <title>Closing the AI guidance gap in education</title>
+      <link>https://openai.com/index/closing-ai-guidance-gap-education</link>
+      <guid isPermaLink="true">https://openai.com/index/closing-ai-guidance-gap-education</guid>
+      <description>New ThinkYoung research and lessons from OpenAI’s EMEA education partnerships on supporting teachers, AI literacy, and independent learning.</description>
+      <enclosure url="https://images.ctfassets.net/kftzwdyauwt9/31dARlakgeBjEGDjdpJO19/7f707711c640f606dafacb1854d2a673/closing-the-ai-guidance-gap-in-education-social.png?w=1600&amp;h=900&amp;fit=fill" type="image/jpeg" length="0"/>
+    </item>
+  </channel>
+</rss>
