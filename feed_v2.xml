@@ -5,7 +5,7 @@
     <link>https://openai.com/news/</link>
     <description>Latest articles from OpenAI</description>
     <language>en</language>
-    <atom:link href="https://raw.githubusercontent.com/jayreck996/py-openai/master/feed_v2.xml" rel="self" type="application/rss+xml"/>
+    <atom:link href="https://raw.githubusercontent.com/jayreck996/py-openai/master/feed.xml" rel="self" type="application/rss+xml"/>
     <item>
       <title>Untitled</title>
       <link>https://openai.com/research/index</link>
