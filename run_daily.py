@@ -4,6 +4,7 @@ Maintains a rolling 7-day window: fetches new articles, skips already-saved ones
 and removes data directories older than WINDOW_DAYS at the end of each run.
 """
 
+import argparse
 import asyncio
 import json
 import re
@@ -82,7 +83,7 @@ def url_to_slug(url: str) -> str:
     return re.sub(r"[^a-zA-Z0-9_-]", "-", path)
 
 
-async def main() -> None:
+async def main(test_version: int | None = None) -> None:
     from app.extractor import extract
 
     DATA_DIR.mkdir(exist_ok=True)
@@ -134,7 +135,7 @@ async def main() -> None:
                 print(f"    ERROR: {exc}", file=sys.stderr)
 
     _cleanup_old_data()
-    _generate_feed()
+    _generate_feed(test_version)
 
 
 def _body_to_html(text: str, cover_url: str = "", body_images: list = None) -> str:
@@ -180,7 +181,9 @@ def _body_to_html(text: str, cover_url: str = "", body_images: list = None) -> s
     return cover_html + "".join(parts)
 
 
-def _generate_feed() -> None:
+def _generate_feed(test_version: int | None = None) -> None:
+    if test_version is not None and test_version < 1:
+        raise ValueError("Test feed version must be a positive integer")
     articles = []
     for f in sorted(DATA_DIR.glob("**/*.json"), reverse=True):
         try:
@@ -205,7 +208,7 @@ def _generate_feed() -> None:
         item = SubElement(channel, "item")
         SubElement(item, "title").text = a.get("title") or "Untitled"
         SubElement(item, "link").text = a.get("url", "")
-        SubElement(item, "guid", isPermaLink="false").text = a.get("url", "") + "#v14"
+        SubElement(item, "guid", isPermaLink="false").text = a.get("url", "")
         # Re-render saved DOM too, so existing articles benefit without a refetch.
         body = (
             clean_article_html(a.get("body_html") or "", a.get("url") or "")
@@ -231,6 +234,18 @@ def _generate_feed() -> None:
             enc.set("type", "image/jpeg")
             enc.set("length", "0")
 
+    _write_feed(rss, Path("feed.xml"))
+    print(f"Feed updated: {len(articles)} item(s) -> feed.xml")
+    if test_version is not None:
+        test_name = f"feed_v{test_version}.xml"
+        atom_link.set("href", atom_link.get("href").rsplit("/", 1)[0] + "/" + test_name)
+        for guid in channel.findall("item/guid"):
+            guid.text += f"#v{test_version}"
+        _write_feed(rss, Path(test_name))
+        print(f"Test feed updated: {test_name}")
+
+
+def _write_feed(rss: Element, destination: Path) -> None:
     xml_str = parseString(tostring(rss, encoding="unicode")).toprettyxml(indent="  ")
     # minidom escapes CDATA delimiters and content — fix both
     xml_str = xml_str.replace("&lt;![CDATA[", "<![CDATA[").replace("]]&gt;", "]]>")
@@ -240,9 +255,7 @@ def _generate_feed() -> None:
         xml_str,
         flags=re.DOTALL,
     )
-    Path("feed.xml").write_text(xml_str, encoding="utf-8")
-    Path("feed_v14.xml").write_text(xml_str, encoding="utf-8")
-    print(f"Feed updated: {len(articles)} item(s) -> feed.xml + feed_v14.xml")
+    destination.write_text(xml_str, encoding="utf-8")
 
 
 def _cleanup_old_data() -> None:
@@ -259,4 +272,13 @@ def _cleanup_old_data() -> None:
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    parser = argparse.ArgumentParser(description="Update the permanent feed.xml RSS feed.")
+    parser.add_argument("--feed-only", action="store_true", help="Rebuild from saved articles without fetching.")
+    parser.add_argument("--test-version", type=int, metavar="N", help="Also write feed_vN.xml for testing.")
+    args = parser.parse_args()
+    if args.test_version is not None and args.test_version < 1:
+        parser.error("--test-version must be a positive integer")
+    if args.feed_only:
+        _generate_feed(args.test_version)
+    else:
+        asyncio.run(main(args.test_version))
