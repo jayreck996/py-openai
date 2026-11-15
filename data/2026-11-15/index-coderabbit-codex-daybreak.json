@@ -1,0 +1,18 @@
+{
+  "url": "https://openai.com/index/coderabbit-codex-daybreak",
+  "source": "openai",
+  "title": "CodeRabbit scales agentic software development and ships 20x more",
+  "author": null,
+  "published_at": null,
+  "summary": "CodeRabbit uses OpenAI models to govern and trust AI-generated code and Codex to ship 20 times more software with the same engineering team.",
+  "cover_image": {
+    "url": "https://images.ctfassets.net/kftzwdyauwt9/5TAanXWCpBQ0R0n2AFa89t/34f319750f5ffc9ebc78901cb054b866/coderabbit-seo-1920x1080.png?w=1600&h=900&fit=fill",
+    "alt": null,
+    "width": null,
+    "height": null
+  },
+  "body_html": "<main class=\"@container relative z-1 outline-none\" id=\"main\" tabindex=\"-1\"><span aria-atomic=\"true\" aria-live=\"polite\" class=\"sr-only\">CodeRabbit scales agentic software development and ships 20x more | OpenAI</span><!--$--><!--/$--><div style='font-family: system-ui, \"Segoe UI\", Roboto, Helvetica, Arial, sans-serif, \"Apple Color Emoji\", \"Segoe UI Emoji\"; height: 100vh; text-align: center; display: flex; flex-direction: column; align-items: center; justify-content: center;'><div style=\"line-height: 48px;\"><style>body{color:#000;background:#fff;margin:0}.next-error-h1{border-right:1px solid rgba(0,0,0,.3)}@media (prefers-color-scheme:dark){body{color:#fff;background:#000}.next-error-h1{border-right:1px solid rgba(255,255,255,.3)}}</style><h1 class=\"next-error-h1\" style=\"display: inline-block; margin: 0px 20px 0px 0px; padding-right: 23px; font-size: 24px; font-weight: 500; vertical-align: top;\">500</h1><div style=\"display: inline-block;\"><h2 style=\"font-size: 14px; font-weight: 400; line-height: 28px;\">Internal Server Error.</h2></div></div></div></main>",
+  "body_text": null,
+  "images": [],
+  "tags": []
+}

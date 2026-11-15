@@ -1,0 +1,18 @@
+{
+  "url": "https://openai.com/index/kuken",
+  "source": "openai",
+  "title": "Kuken Industries searches 70 years of drawings in minutes",
+  "author": null,
+  "published_at": null,
+  "summary": "Kuken Industries uses the OpenAI API to search 70 years of cooling tower drawings. Engineers can find the drawing for a repair in 4.5 minutes, down from nearly an hour.",
+  "cover_image": {
+    "url": "https://images.ctfassets.net/kftzwdyauwt9/R7jAHAGqWOWrYCWsKdqvh/ae1842d55734f243d187c8c3e3a93c19/kuken-social.png?w=1600&h=900&fit=fill",
+    "alt": null,
+    "width": null,
+    "height": null
+  },
+  "body_html": "<main class=\"@container relative z-1 outline-none\" id=\"main\" tabindex=\"-1\"><span aria-atomic=\"true\" aria-live=\"polite\" class=\"sr-only\">Kuken Industries searches 70 years of drawings in minutes | OpenAI</span><!--$--><!--/$--><div style='font-family: system-ui, \"Segoe UI\", Roboto, Helvetica, Arial, sans-serif, \"Apple Color Emoji\", \"Segoe UI Emoji\"; height: 100vh; text-align: center; display: flex; flex-direction: column; align-items: center; justify-content: center;'><div style=\"line-height: 48px;\"><style>body{color:#000;background:#fff;margin:0}.next-error-h1{border-right:1px solid rgba(0,0,0,.3)}@media (prefers-color-scheme:dark){body{color:#fff;background:#000}.next-error-h1{border-right:1px solid rgba(255,255,255,.3)}}</style><h1 class=\"next-error-h1\" style=\"display: inline-block; margin: 0px 20px 0px 0px; padding-right: 23px; font-size: 24px; font-weight: 500; vertical-align: top;\">500</h1><div style=\"display: inline-block;\"><h2 style=\"font-size: 14px; font-weight: 400; line-height: 28px;\">Internal Server Error.</h2></div></div></div></main>",
+  "body_text": null,
+  "images": [],
+  "tags": []
+}
