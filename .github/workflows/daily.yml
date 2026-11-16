@@ -7,10 +7,15 @@ on:
 
 permissions:
   contents: write
+  pages: write
+  id-token: write
 
 jobs:
   fetch:
     runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
 
     steps:
       - uses: actions/checkout@v4
@@ -47,3 +52,23 @@ jobs:
           git add data/ feed.xml
           git diff --staged --quiet && echo "Nothing new to commit." || \
             git commit -m "chore: daily fetch $(date -u +%Y-%m-%d)" && git push
+
+      - name: Configure GitHub Pages
+        uses: actions/configure-pages@v5
+
+      - name: Prepare feed artifact
+        run: |
+          mkdir -p _site
+          cp feed.xml _site/feed.xml
+          touch _site/.nojekyll
+
+      - name: Upload feed artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+      - name: Deploy feed to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
+        with:
+          artifact_name: github-pages
