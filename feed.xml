@@ -5,7 +5,7 @@
     <link>https://openai.com/news/</link>
     <description>Latest articles from OpenAI</description>
     <language>en</language>
-    <atom:link href="https://raw.githubusercontent.com/jayreck996/py-openai/master/feed.xml" rel="self" type="application/rss+xml"/>
+    <atom:link href="https://jayreck996.github.io/py-openai/feed.xml" rel="self" type="application/rss+xml"/>
     <item>
       <title>A step toward defining the Standard Model on a lattice</title>
       <link>https://openai.com/index/step-toward-defining-the-standard-model</link>
