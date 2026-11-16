@@ -9,6 +9,14 @@ REQUIRED FORMAT FOR EACH ASSET ENTRY:
 
 ## ASSET:{NAME OF ENVIRONMENT} {YYYY-MM-DD HH:MM} → {CONTENT}
 
+## ASSET:py-openai 2026-11-16 18:01 → GitHub Pages XML feed publishing
+
+- The daily workflow now deploys `feed.xml` to `https://jayreck996.github.io/py-openai/feed.xml` after each fetch.
+- The feed advertises the Pages URL as its Atom self link. GitHub Pages serves it with `Content-Type: application/xml`; the raw GitHub URL remains available but serves `text/plain`.
+- Enabled GitHub Pages with Actions publishing. Verified the live endpoint returns HTTP 200, parses as RSS XML, and contains 17 articles, including the two latest OpenAI entries.
+- Validation run: https://github.com/jayreck996/py-openai/actions/runs/43806501379
+- Implementation commits: `6b5f4d4` (Pages deployment), `cf53f82` (enable Pages), and `2c1167d` (canonical Atom self link).
+
 ## ASSET:py-openai 2026-11-15 21:32 → Correct inline image positions, permanent production feed, strict fresh fetching
 
 - React Flight tree traversal replaces payload-offset regex extraction. Lazy references resolve at their actual child positions; all four Businesses in ChatGPT screenshots were verified against the captured source.
